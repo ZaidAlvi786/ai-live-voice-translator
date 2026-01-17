@@ -1,0 +1,8 @@
+deepgram-sdk>=3.0.0
+elevenlabs>=0.3.0
+openai>=1.0.0
+langchain>=0.1.0
+langchain-openai
+python-dotenv
+numpy
+scipy
