@@ -1,0 +1,11 @@
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+supabase>=2.0.0
+python-multipart
+pydantic-settings
+asyncpg
+httpx
+python-jose[cryptography]
+passlib[bcrypt]
+websockets
+aiohttp>=3.9.0
