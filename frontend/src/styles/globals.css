@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+    --foreground-rgb: 255, 255, 255;
+    --background-start-rgb: 5, 5, 16;
+    --background-end-rgb: 0, 0, 0;
+}
+
+body {
+    color: rgb(var(--foreground-rgb));
+    background: radial-gradient(circle at center, #0B111D 0%, #020408 100%);
+    overflow: hidden;
+    /* App-like feel, no scroll by default */
+}
+
+@layer utilities {
+    .glass-panel {
+        @apply bg-obsidian-surface backdrop-blur-lg border border-white/10 shadow-neural;
+    }
+
+    .glass-card {
+        @apply bg-obsidian-surface backdrop-blur-md border border-white/5 rounded-xl;
+    }
+
+    .text-glow {
+        text-shadow: 0 0 20px rgba(0, 242, 255, 0.5);
+    }
+}
+
+canvas {
+    touch-action: none;
+}
+
+@keyframes gradient-x {
+
+    0%,
+    100% {
+        background-position: 0% 50%;
+    }
+
+    50% {
+        background-position: 100% 50%;
+    }
+}
+
+.animate-gradient-x {
+    animation: gradient-x 3s ease infinite;
+}
+
+.perspective-1000 {
+    perspective: 1000px;
+}
