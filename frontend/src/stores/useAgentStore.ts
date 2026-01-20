@@ -14,10 +14,10 @@ interface AgentState {
 }
 
 const DEFAULT_PERSONALITY: AgentPersonality = {
-    friendliness: 0.5,
-    intelligence: 0.8,
-    creativity: 0.5,
-    speed: 0.7,
+    confidence: 0.5,
+    empathy: 0.5,
+    technical: 0.5,
+    speed: 1.0,
 };
 
 export const useAgentStore = create<AgentState>((set, get) => ({
@@ -44,6 +44,15 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             console.log("Agent Created via API", response);
         } catch (error) {
             console.error("Failed to create agent", error);
+            throw error;
+        }
+    },
+    fetchAgents: async () => {
+        try {
+            const response = await apiRequest<Agent[]>('/agents/');
+            set({ agents: response });
+        } catch (error) {
+            console.error("Failed to fetch agents", error);
         }
     }
 }));

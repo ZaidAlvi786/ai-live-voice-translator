@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { User } from '@/types';
 
 interface AuthState {
@@ -13,21 +14,29 @@ interface AuthState {
     signOut: () => Promise<void>;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
-    user: null,
-    token: null,
-    isLoading: true, // Start in loading state for "The Birth" check
-    error: null,
+export const useAuthStore = create<AuthState>()(
+    persist(
+        (set) => ({
+            user: null,
+            token: null,
+            isLoading: true, // Start in loading state for "The Birth" check
+            error: null,
 
-    setUser: (user) => set({ user }),
-    setToken: (token) => set({ token }),
+            setUser: (user) => set({ user }),
+            setToken: (token) => set({ token }),
 
-    signIn: async () => {
-        // TODO: Implement Supabase Auth
-        console.log("Sign In Initiated");
-    },
+            signIn: async () => {
+                // TODO: Implement Supabase Auth
+                console.log("Sign In Initiated");
+            },
 
-    signOut: async () => {
-        set({ user: null, token: null });
-    },
-}));
+            signOut: async () => {
+                set({ user: null, token: null });
+            },
+        }),
+        {
+            name: 'auth-storage', // name of the item in the storage (must be unique)
+            storage: createJSONStorage(() => localStorage), // (optional) by default, 'localStorage' is used
+        }
+    )
+);

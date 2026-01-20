@@ -108,6 +108,11 @@ const FileItem = ({ name, size, type, status }: { name: string, size: string, ty
 
 // --- MAIN PAGE ---
 
+import { apiRequest } from '@/lib/api';
+import { AgentResponse } from '@/types'; // Ensure types are imported
+
+// ... (keep headers)
+
 export default function CreateAgentPage() {
     const router = useRouter();
     const store = useSynthesisStore();
@@ -137,25 +142,13 @@ export default function CreateAgentPage() {
                     confidence: store.confidence,
                     empathy: store.empathy,
                     technical: store.technical,
+                    speed: 1.0
                 }
             };
 
-            const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
-
-            const agentResponse = await fetch(`${API_URL}/agents/`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify(agentProfile),
-            });
-
-            if (!agentResponse.ok) {
-                throw new Error("Failed to create agent core.");
-            }
-
-            const agentData = await agentResponse.json();
+            // Replaced manual fetch with centralized apiRequest
+            // This ensures correct API_URL from env or defaults
+            const agentData = await apiRequest<AgentResponse>('/agents/', 'POST', agentProfile);
             const agentId = agentData.id;
             console.log("Agent Created:", agentId);
 
@@ -425,8 +418,8 @@ export default function CreateAgentPage() {
                             </div>
                         </div>
                         <div className="w-[400px] font-mono text-xs space-y-2 opacity-60">
-                            <p className="text-[#00F2FF]">> Initiating secure handshake...</p>
-                            <p className="text-white/60">> Allocating GPU clusters...</p>
+                            <p className="text-[#00F2FF]">&gt; Initiating secure handshake...</p>
+                            <p className="text-white/60">&gt; Allocating GPU clusters...</p>
                         </div>
                     </motion.div>
                 )}
