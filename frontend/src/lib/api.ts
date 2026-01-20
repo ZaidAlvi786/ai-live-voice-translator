@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/useAuthStore';
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
 export async function apiRequest<T>(
@@ -9,9 +11,11 @@ export async function apiRequest<T>(
         'Content-Type': 'application/json',
     };
 
-    // In real app, add Authorization header here from useAuthStore
-    // const token = useAuthStore.getState().token;
-    // if (token) headers['Authorization'] = `Bearer ${token}`;
+    // Add Authorization header from useAuthStore
+    const token = useAuthStore.getState().token;
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
 
     const config: RequestInit = {
         method,
