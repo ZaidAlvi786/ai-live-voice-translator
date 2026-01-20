@@ -1,16 +1,23 @@
 'use client';
 
-import { Suspense } from 'react';
+import { Suspense, useEffect } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { DashboardHeader } from '@/components/layout/DashboardHeader';
 import { ParticleCloud } from '@/components/canvas/ParticleCloud';
+import { useAgentStore } from '@/stores/useAgentStore';
 
 export default function DashboardLayout({
     children,
 }: {
     children: React.ReactNode;
 }) {
+    const fetchAgents = useAgentStore((state) => state.fetchAgents);
+
+    useEffect(() => {
+        fetchAgents();
+    }, [fetchAgents]);
+
     return (
         <div className="relative w-screen h-screen bg-transparent text-white overflow-hidden font-sans">
             {/* 3D Background */}
