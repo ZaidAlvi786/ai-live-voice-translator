@@ -32,13 +32,14 @@ export default function Signup() {
         setLoading(true);
 
         try {
-            // Simulate API Call or use the connect endpoint
-            const res = await fetch('http://localhost:8000/api/v1/auth/connect', {
+            // Call the correct Register endpoint
+            const res = await fetch('http://localhost:8000/api/v1/auth/register', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     neural_id: formData.email,
-                    passcode: formData.passkey
+                    passcode: formData.passkey,
+                    full_name: formData.name // Send the name!
                 }),
             });
 
