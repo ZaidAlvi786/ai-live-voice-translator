@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { LayoutDashboard, Users, MessageSquare, GraduationCap, Settings, Shield } from 'lucide-react';
+import { LayoutDashboard, Users, MessageSquare, GraduationCap, Settings, Shield, LogOut } from 'lucide-react';
+import { useAuthStore } from '@/stores/useAuthStore';
 
 const MENU_ITEMS = [
     { name: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
@@ -15,6 +16,8 @@ const MENU_ITEMS = [
 
 export function Sidebar() {
     const pathname = usePathname();
+    const router = useRouter();
+    const { user, signOut } = useAuthStore();
 
     const isActive = (path: string) => pathname.startsWith(path);
 
@@ -64,14 +67,33 @@ export function Sidebar() {
             </nav>
 
             {/* Footer User */}
-            <div className="p-6 border-t border-white/5">
-                <div className="flex items-center gap-3 opacity-60 hover:opacity-100 transition-opacity cursor-pointer">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-cyan-600 to-blue-600 border border-white/10" />
-                    <div>
-                        <p className="text-xs text-white font-medium">Admin Alpha</p>
-                        <p className="text-[9px] text-cyan-neural/80 uppercase">L-4 Clearance</p>
+            <div className="p-4 border-t border-white/5 space-y-3">
+                <Link href="/profile" className="block">
+                    <div className="flex items-center gap-3 opacity-60 hover:opacity-100 transition-opacity cursor-pointer p-2 rounded-lg hover:bg-white/5">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-cyan-600 to-blue-600 border border-white/10 overflow-hidden flex items-center justify-center">
+                            {user?.avatar_url ? (
+                                <img src={user.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                            ) : (
+                                <Users className="w-4 h-4 text-white" />
+                            )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-xs text-white font-medium truncate">{user?.full_name || 'Operative'}</p>
+                            <p className="text-[9px] text-cyan-neural/80 uppercase">L-4 Clearance</p>
+                        </div>
                     </div>
-                </div>
+                </Link>
+
+                <button
+                    onClick={async () => {
+                        await signOut();
+                        router.push('/');
+                    }}
+                    className="w-full flex items-center gap-3 px-2 py-2 text-red-400/60 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all group"
+                >
+                    <LogOut className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                    <span className="text-xs font-medium tracking-wide">TERMINATE SESSION</span>
+                </button>
             </div>
         </aside>
     );
