@@ -6,6 +6,8 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { DashboardHeader } from '@/components/layout/DashboardHeader';
 import { ParticleCloud } from '@/components/canvas/ParticleCloud';
 import { useAgentStore } from '@/stores/useAgentStore';
+import { useAuthStore } from '@/stores/useAuthStore';
+import { useRouter } from 'next/navigation';
 
 export default function DashboardLayout({
     children,
@@ -13,10 +15,20 @@ export default function DashboardLayout({
     children: React.ReactNode;
 }) {
     const fetchAgents = useAgentStore((state) => state.fetchAgents);
+    const { token, _hasHydrated } = useAuthStore();
+    const router = useRouter();
 
     useEffect(() => {
-        fetchAgents();
-    }, [fetchAgents]);
+        if (_hasHydrated && !token) {
+            router.push('/');
+        }
+    }, [_hasHydrated, token, router]);
+
+    useEffect(() => {
+        if (token) {
+            fetchAgents();
+        }
+    }, [fetchAgents, token]);
 
     return (
         <div className="relative w-screen h-screen bg-transparent text-white overflow-hidden font-sans">
