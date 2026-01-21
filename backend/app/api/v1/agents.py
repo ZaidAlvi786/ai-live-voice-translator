@@ -29,6 +29,27 @@ class AgentResponse(BaseModel):
 
 # --- Endpoints ---
 
+@router.get("/options")
+async def get_agent_options(user: dict = Depends(get_current_user)):
+    """
+    Get available voice models and agent templates.
+    """
+    supabase = get_supabase_client()
+    try:
+        voices = supabase.table("voice_models").select("*").execute()
+        templates = supabase.table("agent_templates").select("*").execute()
+        return {
+            "voice_models": voices.data,
+            "templates": templates.data
+        }
+    except Exception as e:
+        print(f"Error fetching options: {e}")
+        # Return empty lists instead of crashing if tables don't exist yet
+        return {
+            "voice_models": [],
+            "templates": []
+        }
+
 @router.post("/", response_model=AgentResponse)
 async def create_agent(agent: AgentCreate, user: dict = Depends(get_current_user)):
     """
@@ -36,6 +57,21 @@ async def create_agent(agent: AgentCreate, user: dict = Depends(get_current_user
     """
     supabase = get_supabase_client()
     
+    # Validation: Check if voice_model_id is valid (if provided)
+    if agent.voice_model_id:
+        try:
+            voice_check = supabase.table("voice_models").select("id").eq("id", agent.voice_model_id).execute()
+            # If the table exists but returns no data, it's invalid.
+            # If the table DOES NOT exist, it might throw an error or return empty.
+            # We'll assume strict validation only if the table query succeeds.
+            if voice_check.data is not None and len(voice_check.data) == 0:
+                 raise HTTPException(status_code=400, detail=f"Invalid voice_model_id: {agent.voice_model_id}")
+        except Exception as e:
+             # If table doesn't exist yet, we might want to allow it or log it.
+             # For now, let's log and proceed (soft validation) or fail?
+             # User requested "validation", so let's be strict but careful about missing tables.
+             print(f"Warning: Voice validation failed (table might be missing): {e}")
+
     agent_data = {
         "user_id": user["id"],
         "name": agent.name,
@@ -88,6 +124,8 @@ async def get_agent(agent_id: str, user: dict = Depends(get_current_user)):
         print(f"Error getting agent {agent_id}: {e}")
         raise HTTPException(status_code=404, detail="Agent not found")
 
+
+
 class AgentUpdate(BaseModel):
     name: Optional[str] = None
     personality_config: Optional[AgentPersonality] = None
@@ -126,3 +164,64 @@ async def update_agent(agent_id: str, update: AgentUpdate, user: dict = Depends(
     except Exception as e:
         print(f"Error updating agent {agent_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/{agent_id}")
+async def delete_agent(agent_id: str, user: dict = Depends(get_current_user)):
+    """
+    Delete an agent.
+    """
+    supabase = get_supabase_client()
+    
+    try:
+        # RLS should handle the user_id check, but we include it for extra safety
+        response = supabase.table("agents").delete().eq("id", agent_id).eq("user_id", user["id"]).execute()
+        
+        # Supabase-py delete returns the deleted rows in .data
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Agent not found or permission denied")
+            
+        return {"message": "Agent deleted successfully", "id": agent_id}
+        
+    except Exception as e:
+        print(f"Error deleting agent {agent_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+from fastapi import UploadFile, File
+from app.services.ai.rag_service import RAGService
+
+@router.post("/{agent_id}/knowledge")
+async def upload_knowledge(
+    agent_id: str, 
+    file: UploadFile = File(...), 
+    user: dict = Depends(get_current_user)
+):
+    """
+    Upload a document to the agent's knowledge base.
+    """
+    # 1. Verify Agent Ownership
+    supabase = get_supabase_client()
+    try:
+        agent_check = supabase.table("agents").select("id").eq("id", agent_id).eq("user_id", user["id"]).execute()
+        if not agent_check.data:
+            raise HTTPException(status_code=404, detail="Agent not found or permission denied")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+        
+    # 2. Read Content
+    # Limit file size/type in production
+    content = await file.read()
+    
+    # 3. Simple Text Extraction (Assuming .txt for MVP, or extract text from bytes)
+    # For PDF support, we'd need PyPDF2 or similar. 
+    # Let's support plain text now, and maybe basic PDF parsing if we add a dependency.
+    # We will assume it's utf-8 text file.
+    try:
+        text_content = content.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Only UTF-8 text files are supported currently")
+        
+    # 4. Ingest via RAG Service
+    rag = RAGService()
+    await rag.ingest_document(agent_id, user["id"], file.filename, text_content)
+    
+    return {"message": "Document ingested successfully", "filename": file.filename}

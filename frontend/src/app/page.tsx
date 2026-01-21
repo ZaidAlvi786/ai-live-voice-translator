@@ -5,14 +5,26 @@ import { Canvas } from '@react-three/fiber';
 import { NeuralCore } from '@/components/canvas/NeuralCore';
 import { NeuralAuth } from '@/components/auth/NeuralAuth';
 import { useSpatialStore } from '@/stores/useSpatialStore';
+import { useRouter } from 'next/navigation';
+import { useAuthStore } from '@/stores/useAuthStore';
 
 export default function Home() {
+    const router = useRouter();
+    const { token, _hasHydrated } = useAuthStore();
     const { mode, setMode } = useSpatialStore();
 
     useEffect(() => {
+        if (_hasHydrated && token) {
+            router.push('/dashboard');
+        }
+    }, [_hasHydrated, token, router]);
+
+    useEffect(() => {
         // Force AUTH mode on mount (since this IS the auth page now)
-        setMode('AUTH');
-    }, [setMode]);
+        if (!token) {
+            setMode('AUTH');
+        }
+    }, [setMode, token]);
 
     return (
         <main className="relative w-screen h-screen overflow-hidden bg-black text-white">

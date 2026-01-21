@@ -4,7 +4,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1
 
 export async function apiRequest<T>(
     endpoint: string,
-    method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET',
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' = 'GET',
     body?: any
 ): Promise<T> {
     const headers: HeadersInit = {
