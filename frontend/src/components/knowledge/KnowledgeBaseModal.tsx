@@ -57,7 +57,9 @@ const KnowledgeListItem = ({ node }: { node: KnowledgeNode }) => {
 
                     <div className="flex items-center justify-between">
                         <span className="text-[9px] text-white/30 uppercase font-mono">{node.size}</span>
-                        <span className="text-[9px] text-white/20">Updated: 2 HR AGO</span>
+                        <span className="text-[9px] text-white/20">
+                            {node.status === 'queued' ? 'JUST NOW' : 'SYNCED'}
+                        </span>
                     </div>
 
                     {/* Progress Bar for Processing */}
@@ -83,7 +85,7 @@ const CheckIcon = () => (
 )
 
 export function KnowledgeBaseModal({ onClose }: { onClose: () => void }) {
-    const { nodes, ingestNode, ingestionState, ingestionProgress } = useNeuralMapStore();
+    const { nodes, ingestNode, ingestionState, ingestionProgress, focusedNodeId } = useNeuralMapStore();
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -215,6 +217,40 @@ export function KnowledgeBaseModal({ onClose }: { onClose: () => void }) {
                     <p className="text-[9px] text-[#00F2FF] font-mono tracking-wider">VECTOR_DB_STATUS: ONLINE</p>
                     <p className="text-[9px] text-white/30 font-mono tracking-wider">NODES_INDEXED: {nodes.length + 1400}</p>
                 </div>
+
+                {/* Selected Node Actions Overlay */}
+                {focusedNodeId && (
+                    <div className="absolute bottom-20 right-8 z-20 w-80 bg-[#05080a]/90 backdrop-blur-xl border border-white/10 rounded-xl p-4 shadow-2xl">
+                        {(() => {
+                            const node = nodes.find(n => n.id === focusedNodeId);
+                            if (!node) return null;
+                            return (
+                                <>
+                                    <h3 className="text-sm font-bold text-white mb-2 truncate">{node.label}</h3>
+                                    <div className="grid grid-cols-2 gap-2 mt-4">
+                                        <button
+                                            onClick={() => {
+                                                if (confirm("Disconnect Neural Node?")) {
+                                                    useNeuralMapStore.getState().removeNode(node.id);
+                                                    useNeuralMapStore.getState().focusNode(null);
+                                                }
+                                            }}
+                                            className="px-3 py-2 rounded bg-red-500/10 border border-red-500/30 text-red-500/80 text-[10px] font-bold uppercase hover:bg-red-500/20 transition-colors"
+                                        >
+                                            Disconnect
+                                        </button>
+                                        <button
+                                            onClick={() => alert("Re-indexing initiated...")}
+                                            className="px-3 py-2 rounded bg-[#00F2FF]/10 border border-[#00F2FF]/30 text-[#00F2FF] text-[10px] font-bold uppercase hover:bg-[#00F2FF]/20 transition-colors flex items-center justify-center gap-2"
+                                        >
+                                            <RefreshCw className="w-3 h-3" /> Re-index
+                                        </button>
+                                    </div>
+                                </>
+                            );
+                        })()}
+                    </div>
+                )}
 
                 {/* Close Button specific */}
                 <button
