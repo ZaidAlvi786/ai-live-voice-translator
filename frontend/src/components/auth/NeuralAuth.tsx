@@ -4,9 +4,14 @@ import { useState } from 'react';
 import { motion, useSpring, useTransform, useMotionValue } from 'framer-motion';
 import { Fingerprint, Zap } from 'lucide-react';
 import { useSpatialStore } from '@/stores/useSpatialStore';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useAuthStore } from '@/stores/useAuthStore';
 
 export function NeuralAuth() {
     const { setMode } = useSpatialStore();
+    const router = useRouter();
+    const { setToken, setUser } = useAuthStore();
     const [isHovering, setIsHovering] = useState(false);
     const [neuralId, setNeuralId] = useState('');
     const [passcode, setPasscode] = useState('');
@@ -56,8 +61,19 @@ export function NeuralAuth() {
             const data = await res.json();
             console.log("Connection Established:", data);
 
+            // Save to store
+            setToken(data.token);
+            setUser({
+                id: data.user_id,
+                email: neuralId,
+                full_name: 'Operative',
+                avatar_url: null,
+                created_at: new Date().toISOString()
+            });
+
             setTimeout(() => {
                 setMode('DASHBOARD');
+                router.push('/dashboard');
             }, 1000);
 
         } catch (err) {
@@ -180,6 +196,14 @@ export function NeuralAuth() {
                             </div>
                         </motion.button>
                     </form>
+
+
+                    <div className="text-center text-[8px] text-cyan-900/40 mt-4 uppercase tracking-wider font-mono">
+                        <span className="opacity-60">Unregistered Signal?</span>{' '}
+                        <Link href="/signup" className="text-cyan-600 hover:text-cyan-400 font-bold transition-colors">
+                            INITIALIZE IDENTITY
+                        </Link>
+                    </div>
                 </motion.div>
 
                 {/* Footer Status */}
