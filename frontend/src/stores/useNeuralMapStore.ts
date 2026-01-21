@@ -41,19 +41,7 @@ interface KnowledgeCortexState {
     removeNode: (id: string) => void;
 }
 
-const MOCK_NODES: KnowledgeNode[] = [
-    {
-        id: '1',
-        label: 'Project_Titan_Specs.pdf',
-        type: 'pdf',
-        status: 'synced',
-        size: '2.4 MB',
-        description: 'Technical Doc',
-        position: [2, 1.5, 0],
-        relevancy: 98,
-        entities: ['Titan Architecture', 'Neural Lattice']
-    }
-];
+const MOCK_NODES: KnowledgeNode[] = [];
 
 export const useNeuralMapStore = create<KnowledgeCortexState>((set, get) => ({
     isKnowledgeModalOpen: false,
@@ -110,7 +98,8 @@ export const useNeuralMapStore = create<KnowledgeCortexState>((set, get) => ({
             formData.append('file', file);
 
             try {
-                await fetch(`${API_URL}/training/upload?agent_id=${agentId}&type=knowledge`, {
+                // Use the new RAG endpoint
+                await fetch(`${API_URL}/agents/${agentId}/knowledge`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${token}`
