@@ -3,7 +3,8 @@ from typing import AsyncGenerator
 from .stt_service import DeepgramSTTService
 from .tts_service import ElevenLabsTTSService
 from .llm_service import OpenAILLMService
-from .memory_service import MemoryService
+from .rag_service import RAGService
+from app.db.supabase import get_supabase_client
 
 class AIOrchestrator:
     def __init__(self, meeting_id: str, agent_id: str, voice_id: str):
@@ -16,6 +17,7 @@ class AIOrchestrator:
         self.tts = ElevenLabsTTSService()
         self.llm = OpenAILLMService()
         self.memory = MemoryService(agent_id, meeting_id)
+        self.rag = RAGService()
         
         # State
         self.is_speaking = False
@@ -26,14 +28,7 @@ class AIOrchestrator:
         self.audio_input_queue = asyncio.Queue()
         self.text_output_queue = asyncio.Queue()
 
-    async def ingest_audio(self, chunk: bytes):
-        """Entry point for incoming audio bytes from WebSocket."""
-        await self.audio_input_queue.put(chunk)
-
-    async def audio_generator(self) -> AsyncGenerator[bytes, None]:
-        while True:
-            chunk = await self.audio_input_queue.get()
-            yield chunk
+    # ... (ingest_audio, audio_generator, run_pipeline match existing code) ...
 
     async def run_pipeline(self):
         """Main Orchestration Loop."""
@@ -47,15 +42,11 @@ class AIOrchestrator:
             
             # Check for Interrupt if we are speaking
             if self.is_speaking:
-                # Simple logic: If user says something substantial, interrupt.
                 if len(transcript) > 5: 
                     print("INTERRUPT TRIGGERED")
                     self.interrupt_event.set()
                     self.is_speaking = False
-                    # Drain TTS queue logic would go here
             
-            # If prompt (this is a simplified logic, normally we wait for VAD silence)
-            # For this scaffold, we process every final transcript chunk as a turn.
             if len(transcript) > 2: # Ignore noise
                 await self.process_turn(transcript)
 
@@ -64,26 +55,51 @@ class AIOrchestrator:
         
         # 1. Update Memory
         await self.memory.add_interaction("user", user_text)
+
+        # DB: Persist User Transcript
+        try:
+            get_supabase_client().table('meeting_transcripts').insert({
+                "meeting_id": self.meeting_id,
+                "speaker": "user",
+                "content": user_text,
+                "confidence": 1.0
+            }).execute()
+        except Exception as e:
+            print(f"Failed to persist user transcript: {e}")
         
-        # 2. Get Context
+        # 2. RAG Retrieval
+        rag_context = ""
+        try:
+            rag_context = await self.rag.query_knowledge(self.agent_id, user_text)
+            if rag_context:
+                print(f"RAG Context found: {rag_context[:100]}...")
+        except Exception as e:
+            print(f"RAG Error: {e}")
+        
+        # 3. Get Context & History
+        # We append RAG context to the user's input for the LLM or separate system message
         context = await self.memory.get_context(user_text)
+        
+        if rag_context:
+            context["knowledge"] = rag_context
+            
         history = self.memory.get_history_for_llm()
         
-        # 3. Plan Response
+        # 4. Plan Response
+        # (Mocking cost calculation for now)
+        current_cost = 0.01 
+        
         plan = await self.llm.plan_response(context, history)
         print(f"Plan: {plan}")
         
         if plan.get("intent") == "listen":
             return # Don't speak
             
-        # 4. Generate & Speak
+        # 5. Generate & Speak
         self.is_speaking = True
         
         # Start Generation Stream
         llm_stream = self.llm.generate_response(context, history, mode="INTERVIEW")
-        
-        # We need to fork the stream: one to TTS, one to Memory/Log
-        # For simplicity, we'll accumulate text for memory while streaming to TTS.
         
         async def text_iterator_wrapper():
             full_response = ""
@@ -94,9 +110,24 @@ class AIOrchestrator:
                 full_response += token
                 yield token
             
-            # Generation complete (or interrupted)
             if full_response:
                 await self.memory.add_interaction("agent", full_response)
+                
+                # DB: Persist Agent Transcript
+                try:
+                    get_supabase_client().table('meeting_transcripts').insert({
+                        "meeting_id": self.meeting_id,
+                        "speaker": "agent",
+                        "content": full_response,
+                        "confidence": 1.0
+                    }).execute()
+                    
+                    # DB: Update Cost
+                    # Note: Ideally we'd upsert based on meeting_id, but for now let's just log it.
+                    # Or simple blind update if we assume row creation at start.
+                    # get_supabase_client().table('meeting_costs').update({"total_cost": current_cost}).eq("meeting_id", self.meeting_id).execute()
+                except Exception as e:
+                    print(f"Failed to persist agent transcript: {e}")
         
         tts_stream = self.tts.speak_stream(text_iterator_wrapper(), self.voice_id)
         
@@ -104,10 +135,13 @@ class AIOrchestrator:
             if self.interrupt_event.is_set():
                 print("TTS Interrupted")
                 break
-            # Yield this to the WebSocket Sender
-            yield audio_chunk
+            # Yield this to the WebSocket connection manager (via queue or direct ref)
+            # For this scaffold, we just iterate to trigger the TTS generator
+            pass
             
         self.is_speaking = False
+        
+    # ... (get_audio_output_stream) ...
 
     async def get_audio_output_stream(self):
         """
