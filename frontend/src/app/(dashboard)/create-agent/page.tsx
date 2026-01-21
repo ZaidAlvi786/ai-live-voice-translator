@@ -109,7 +109,7 @@ const FileItem = ({ name, size, type, status }: { name: string, size: string, ty
 // --- MAIN PAGE ---
 
 import { apiRequest } from '@/lib/api';
-import { AgentResponse } from '@/types'; // Ensure types are imported
+import { AgentResponse, AgentOptions, VoiceModel, AgentTemplate } from '@/types';
 
 // ... (keep headers)
 
@@ -119,47 +119,75 @@ export default function CreateAgentPage() {
     const { token } = useAuthStore();
 
     // Neural Map Store for Modal
-    const { isKnowledgeModalOpen, openKnowledgeModal, closeKnowledgeModal } = useNeuralMapStore();
+    const { isKnowledgeModalOpen, openKnowledgeModal, closeKnowledgeModal, nodes } = useNeuralMapStore();
 
     const [isSynthesizing, setIsSynthesizing] = useState(false);
-    const [activeTask, setActiveTask] = useState<'meeting' | 'interview'>('interview');
+    const [activeTemplateId, setActiveTemplateId] = useState<string>('');
+    const [selectedVoiceModelId, setSelectedVoiceModelId] = useState<string>('');
+
     const [activeTab, setActiveTab] = useState<'memory' | 'knowledge'>('knowledge');
+    const [options, setOptions] = useState<AgentOptions>({ voice_models: [], templates: [] });
 
     useEffect(() => {
         store.setCoreMode('stasis');
         store.setCameraState('overview');
+
+        // Fetch Dynamic Options
+        apiRequest<AgentOptions>('/agents/options', 'GET')
+            .then(data => {
+                setOptions(data);
+                if (data.templates.length > 0) setActiveTemplateId(data.templates[0].id);
+                // Do not auto-select voice model, user must choose or upload
+            })
+            .catch(err => console.error("Failed to fetch agent options:", err));
     }, []);
 
+    // Update sliders when template changes
+    useEffect(() => {
+        if (!activeTemplateId || options.templates.length === 0) return;
+        const template = options.templates.find(t => t.id === activeTemplateId);
+        if (template) {
+            store.setConfidence(template.default_config.confidence * 100);
+            store.setEmpathy(template.default_config.empathy * 100);
+            store.setTechnical(template.default_config.technical * 100);
+        }
+    }, [activeTemplateId, options.templates]);
+
     const handleSynthesize = async () => {
+        // Validation: Must have Voice File OR Selected Model
+        if (!selectedVoiceModelId && !store.voiceFile) {
+            alert("NEURAL LINK FAILURE: Voice Identity Missing.\nPlease upload a waveform or select a pre-trained model.");
+            return;
+        }
+
         setIsSynthesizing(true);
         store.setCoreMode('synthesizing');
 
         try {
             // STEP 1: Create Agent
             const agentProfile = {
-                name: "Neural Agent v1",
+                name: "Neural Agent v1", // Could make this dynamic too
                 personality_config: {
-                    confidence: store.confidence,
-                    empathy: store.empathy,
-                    technical: store.technical,
+                    confidence: store.confidence / 100, // Convert back to 0-1
+                    empathy: store.empathy / 100,
+                    technical: store.technical / 100,
                     speed: 1.0
-                }
+                },
+                voice_model_id: selectedVoiceModelId || null // Send selected voice model
             };
 
-            // Replaced manual fetch with centralized apiRequest
-            // This ensures correct API_URL from env or defaults
             const agentData = await apiRequest<AgentResponse>('/agents/', 'POST', agentProfile);
             const agentId = agentData.id;
             console.log("Agent Created:", agentId);
 
-            // STEP 2: Upload Voice (if exists)
-            // Parallelize animation wait with uploads
+            // STEP 2: Upload Voice (if exists and NO voice model selected)
+            // If a voice model is selected, we skip upload (or handle it differently)
             await Promise.all([
-                // Minimum animation time (4s)
                 new Promise(resolve => setTimeout(resolve, 4000)),
 
                 (async () => {
-                    if (store.voiceFile && token) {
+                    // Only upload custom voice if NO pre-made model is selected
+                    if (!selectedVoiceModelId && store.voiceFile && token) {
                         console.log("Uploading Voice...");
                         await store.uploadVoiceSample(agentId, token);
                     }
@@ -174,11 +202,7 @@ export default function CreateAgentPage() {
             ]);
 
             store.setCoreMode('complete');
-
-            // Short delay to show "Complete" state
-            setTimeout(() => {
-                router.push('/dashboard');
-            }, 1500);
+            setTimeout(() => { router.push('/dashboard'); }, 1500);
 
         } catch (error) {
             console.error(error);
@@ -193,13 +217,15 @@ export default function CreateAgentPage() {
         if (e.target.files && e.target.files[0]) {
             store.setVoiceFile(e.target.files[0]);
             store.setCoreMode('listening');
+            setSelectedVoiceModelId(''); // Clear selection if uploading
         }
     };
 
     return (
         <div className="relative w-full h-screen bg-[#020408] overflow-hidden text-white selection:bg-cyan-500/30">
+            {/* ... (Keep Canvas and Layout wrapper) ... */}
 
-            {/* MAIN CONTENT WRAPPER - ANIMATES ON MODAL OPEN */}
+            {/* Need to re-paste the wrapper div since we are replacing a large chunk */}
             <motion.div
                 className="relative w-full h-full z-10 flex flex-col"
                 animate={isKnowledgeModalOpen
@@ -208,10 +234,7 @@ export default function CreateAgentPage() {
                 }
                 transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
             >
-                {/* Navbar */}
                 <Header />
-
-                {/* 3D Scene Layer */}
                 <div className="absolute inset-0 z-0 top-[60px]">
                     <Canvas camera={{ position: [0, 0, 9], fov: 40 }}>
                         <ambientLight intensity={1.5} />
@@ -219,7 +242,6 @@ export default function CreateAgentPage() {
                         <pointLight position={[-10, 0, 5]} intensity={1.5} color="#7000FF" />
                         <SynthesisCore />
                         <ParticleCloud count={100} />
-                        {/* 3D Labels */}
                         <Html position={[-1, -2.5, 0]}>
                             <div className="backdrop-blur-md bg-black/40 border border-white/10 px-4 py-3 rounded-lg w-40">
                                 <p className="text-[9px] text-white/40 uppercase tracking-widest mb-1">Sentiment</p>
@@ -229,26 +251,57 @@ export default function CreateAgentPage() {
                     </Canvas>
                 </div>
 
-                {/* MAIN UI GRID */}
                 <div className="relative z-10 w-full h-full pt-[100px] px-8 pb-8 flex justify-between pointer-events-none">
 
-                    {/* LEFT COLUMN - Enabled Pointer Events */}
+                    {/* LEFT COLUMN */}
                     <div className="w-[380px] flex flex-col h-full gap-4 overflow-y-auto scrollbar-hide pointer-events-auto">
 
-                        {/* 1. Identity */}
+                        {/* 1. Identity (Voice) */}
                         <div className="bg-[#05080a]/60 backdrop-blur-xl border border-white/5 rounded-2xl p-6">
                             <SectionTitle icon={Upload} title="Neural Voice Identity" />
+
+                            {/* Voice Model Selector (Dynamic) */}
+                            {options.voice_models.length > 0 && (
+                                <div className="mb-4 space-y-2">
+                                    <label className="text-[10px] text-white/40 uppercase tracking-widest">Select Pre-Trained Model</label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {options.voice_models.map(voice => (
+                                            <button
+                                                key={voice.id}
+                                                onClick={() => {
+                                                    setSelectedVoiceModelId(voice.id);
+                                                    store.setVoiceFile(null); // Clear upload if selecting
+                                                }}
+                                                className={`px-3 py-2 rounded border text-xs text-left transition-all ${selectedVoiceModelId === voice.id
+                                                    ? 'bg-[#00F2FF]/20 border-[#00F2FF] text-[#00F2FF]'
+                                                    : 'bg-white/5 border-white/10 text-white/60 hover:border-white/30'
+                                                    }`}
+                                            >
+                                                {voice.name}
+                                                <span className="block text-[8px] opacity-50 uppercase">{voice.category}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <div className="flex items-center gap-2 my-3">
+                                        <div className="h-px bg-white/10 flex-1" />
+                                        <span className="text-[9px] text-white/30 font-mono">OR UPLOAD CUSTOM</span>
+                                        <div className="h-px bg-white/10 flex-1" />
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="relative">
-                                <label
-                                    className="block h-32 border border-dashed border-white/10 rounded-xl flex flex-col items-center justify-center gap-3 hover:border-[#00F2FF]/50 hover:bg-[#00F2FF]/5 transition-all cursor-pointer group"
-                                >
+                                <label className={`block h-32 border border-dashed rounded-xl flex flex-col items-center justify-center gap-3 transition-all cursor-pointer group ${selectedVoiceModelId
+                                    ? 'border-white/5 bg-black/20 opacity-50'
+                                    : 'border-white/10 hover:border-[#00F2FF]/50 hover:bg-[#00F2FF]/5'
+                                    }`}>
                                     <input
                                         type="file"
                                         accept="audio/*"
                                         className="hidden"
                                         onChange={handleVoiceDrop}
+                                        disabled={!!selectedVoiceModelId}
                                     />
-
                                     {store.voiceUploaded ? (
                                         <div className="flex flex-col items-center">
                                             <div className="w-10 h-10 rounded-full bg-[#00F2FF]/20 flex items-center justify-center mb-2"><CheckCircle className="w-5 h-5 text-[#00F2FF]" /></div>
@@ -278,28 +331,34 @@ export default function CreateAgentPage() {
                             </div>
                         </div>
 
-                        {/* 3. Task Specialization */}
+                        {/* 3. Task Specialization (Dynamic) */}
                         <div className="bg-[#05080a]/60 backdrop-blur-xl border border-white/5 rounded-2xl p-6 pt-5 flex-1">
                             <SectionTitle icon={Settings} title="Task Specialization" />
                             <div className="grid grid-cols-2 gap-3">
-                                <TaskCard
-                                    active={activeTask === 'meeting'}
-                                    onClick={() => setActiveTask('meeting')}
-                                    title="Meeting Auto"
-                                    desc="Autonomous scheduling & summaries with RAG."
-                                    icon={User}
-                                />
-                                <TaskCard
-                                    active={activeTask === 'interview'}
-                                    onClick={() => setActiveTask('interview')}
-                                    title="Tech Interview"
-                                    desc="Code review and algorithm scoring."
-                                    icon={Cpu}
-                                />
+                                {options.templates.map(template => (
+                                    <TaskCard
+                                        key={template.id}
+                                        active={activeTemplateId === template.id}
+                                        onClick={() => setActiveTemplateId(template.id)} // Will trigger effect to update sliders
+                                        title={template.name}
+                                        desc={template.description}
+                                        icon={
+                                            template.icon === 'User' ? User :
+                                                template.icon === 'Cpu' ? Cpu :
+                                                    Settings // Fallback icon
+                                        }
+                                    />
+                                ))}
+                                {options.templates.length === 0 && (
+                                    <div className="col-span-2 text-center py-4 text-xs text-white/30">
+                                        Loading Templates...
+                                    </div>
+                                )}
                             </div>
                         </div>
 
                         {/* INITIATE BUTTON */}
+                        {/* ... (Keep initiate button) ... */}
                         <button
                             onClick={handleSynthesize}
                             disabled={isSynthesizing}
@@ -321,7 +380,7 @@ export default function CreateAgentPage() {
                         </button>
                     </div>
 
-                    {/* RIGHT COLUMN - Enabled Pointer Events */}
+                    {/* RIGHT COLUMN (Keep as is) */}
                     <div className="w-[380px] h-full flex flex-col gap-4 pointer-events-auto">
 
                         {/* TABS */}
@@ -373,7 +432,21 @@ export default function CreateAgentPage() {
                             </div>
 
                             <div className="space-y-3">
-                                <FileItem name="Resume_v2.pdf" size="1.2 MB" type="pdf" status="SYNCED" />
+                                {nodes.length > 0 ? (
+                                    nodes.map((node) => (
+                                        <FileItem
+                                            key={node.id}
+                                            name={node.label}
+                                            size={node.size}
+                                            type={node.type}
+                                            status={node.status === 'queued' ? 'PROCESSING' : 'SYNCED'}
+                                        />
+                                    ))
+                                ) : (
+                                    <div className="p-4 text-center text-[10px] text-white/30 border border-dashed border-white/5 rounded-lg">
+                                        NO DATA STREAMS ACTIVE
+                                    </div>
+                                )}
                             </div>
 
                             {/* Placeholder */}
