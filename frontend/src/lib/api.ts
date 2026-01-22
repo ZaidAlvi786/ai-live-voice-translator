@@ -12,7 +12,9 @@ export async function apiRequest<T>(
     };
 
     // Add Authorization header from useAuthStore
-    const token = useAuthStore.getState().token;
+    const authStore = useAuthStore.getState();
+    const token = authStore.token;
+
     if (token) {
         headers['Authorization'] = `Bearer ${token}`;
     }
@@ -23,7 +25,46 @@ export async function apiRequest<T>(
         body: body ? JSON.stringify(body) : undefined,
     };
 
-    const response = await fetch(`${API_URL}${endpoint}`, config);
+    let response = await fetch(`${API_URL}${endpoint}`, config);
+
+    // 401 Handling: Auto-Refresh
+    if (response.status === 401) {
+        const refreshToken = authStore.refreshToken;
+        if (refreshToken) {
+            try {
+                console.log("Access token expired. Attempting refresh...");
+                // Attempt to refresh
+                const refreshResponse = await fetch(`${API_URL}/auth/refresh`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refresh_token: refreshToken })
+                });
+
+                if (refreshResponse.ok) {
+                    const data = await refreshResponse.json();
+
+                    // Update Store with new tokens
+                    authStore.setTokens(data.token, data.refresh_token);
+
+                    // Retry Original Request with new token
+                    headers['Authorization'] = `Bearer ${data.token}`;
+                    const retryConfig = { ...config, headers };
+                    response = await fetch(`${API_URL}${endpoint}`, retryConfig);
+
+                } else {
+                    console.error("Session refresh failed. Logging out.");
+                    authStore.signOut();
+                    window.location.href = '/'; // Redirect to login
+                    throw new Error("Session expired");
+                }
+            } catch (error) {
+                console.error("Error during token refresh", error);
+                authStore.signOut();
+                window.location.href = '/';
+                throw error;
+            }
+        }
+    }
 
     if (!response.ok) {
         throw new Error(`API Error: ${response.statusText}`);

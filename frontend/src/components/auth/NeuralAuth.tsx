@@ -11,7 +11,7 @@ import { useAuthStore } from '@/stores/useAuthStore';
 export function NeuralAuth() {
     const { setMode } = useSpatialStore();
     const router = useRouter();
-    const { setToken, setUser } = useAuthStore();
+    const { setTokens, setUser } = useAuthStore();
     const [isHovering, setIsHovering] = useState(false);
     const [neuralId, setNeuralId] = useState('');
     const [passcode, setPasscode] = useState('');
@@ -62,7 +62,7 @@ export function NeuralAuth() {
             console.log("Connection Established:", data);
 
             // Save to store
-            setToken(data.token);
+            setTokens(data.token, data.refresh_token);
             setUser({
                 id: data.user_id,
                 email: neuralId,

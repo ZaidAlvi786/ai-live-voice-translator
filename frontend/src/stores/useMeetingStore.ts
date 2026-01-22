@@ -14,7 +14,7 @@ interface MeetingStoreState {
 
     // Actions
     fetchMeetings: () => Promise<void>;
-    startMeeting: (agentId: string) => Promise<void>;
+    startMeeting: (agentId: string, platform?: string, externalUrl?: string) => Promise<void>;
     endMeeting: (meetingId: string) => Promise<void>;
     setActiveMeeting: (id: string | null) => void;
     setViewMode: (mode: ViewMode) => void;
@@ -48,17 +48,25 @@ export const useMeetingStore = create<MeetingStoreState>((set, get) => ({
         }
     },
 
-    startMeeting: async (agentId: string) => {
+    startMeeting: async (agentId, platform = 'webrtc', externalUrl) => {
         set({ isLoading: true });
         try {
-            const newMeeting = await apiRequest<Meeting>('/meetings/', 'POST', { agent_id: agentId });
+            const body = {
+                agent_id: agentId,
+                platform,
+                external_url: externalUrl
+            };
+            const data = await apiRequest<Meeting>('/meetings/', 'POST', body);
+
             set((state) => ({
-                meetings: [newMeeting, ...state.meetings],
-                activeMeetingId: newMeeting.id,
-                viewMode: 'live' // Switch to live view immediately
+                meetings: [data, ...state.meetings],
+                activeMeetingId: data.id,
+                viewMode: 'detail'
             }));
-            // Immediately subscribe
-            get().subscribeToMeeting(newMeeting.id);
+
+            // Subscribe immediately
+            get().subscribeToMeeting(data.id);
+
         } catch (error) {
             console.error("Failed to start meeting", error);
         } finally {

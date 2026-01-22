@@ -45,7 +45,17 @@ export default function Signup() {
 
             if (!res.ok) throw new Error('Signup Failed');
 
-            await res.json();
+            const data = await res.json();
+
+            // Store tokens
+            if (data.token) {
+                // Dynamically import store or use hook if possible.
+                // Since we are in component, we can import hook.
+                // But wait, useSpatialStore is used. Let's use AuthStore too.
+                const { setTokens, setUser } = await import('@/stores/useAuthStore').then(m => m.useAuthStore.getState());
+                setTokens(data.token, data.refresh_token);
+                setUser({ id: data.user_id, email: formData.email, role: 'user' });
+            }
 
             // Success Transition
             setTimeout(() => {

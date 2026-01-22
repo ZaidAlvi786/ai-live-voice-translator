@@ -172,7 +172,9 @@ $$;
 alter table public.meetings 
 add column if not exists title text default 'Neural Session',
 add column if not exists platform text default 'webrtc', -- 'zoom', 'meet', 'webrtc'
+add column if not exists external_url text,
 add column if not exists knowledge_snapshot jsonb default '{}'::jsonb;
+
 
 -- Meeting Participants Table
 create table public.meeting_participants (
@@ -234,4 +236,13 @@ create policy "Users can insert transcripts for their meetings"
 create policy "Users can view costs of their meetings"
   on public.meeting_costs for select
   using (exists (select 1 from public.meetings where id = meeting_id and user_id = auth.uid()));
+
+create policy "Users can insert costs for their meetings"
+  on public.meeting_costs for insert
+  with check (exists (select 1 from public.meetings where id = meeting_id and user_id = auth.uid()));
+
+create policy "Users can update costs for their meetings"
+  on public.meeting_costs for update
+  using (exists (select 1 from public.meetings where id = meeting_id and user_id = auth.uid()));
+
 

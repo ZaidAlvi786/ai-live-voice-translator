@@ -13,7 +13,11 @@ class ConnectResponse(BaseModel):
     status: str
     user_id: str
     token: str
+    refresh_token: str
     message: str
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
 
 @router.post("/connect", response_model=ConnectResponse)
 async def connect_user(auth_data: ConnectRequest):
@@ -52,6 +56,7 @@ async def connect_user(auth_data: ConnectRequest):
         "status": "connected",
         "user_id": auth_response.user.id,
         "token": auth_response.session.access_token,
+        "refresh_token": auth_response.session.refresh_token,
         "message": "Biometric synchronization complete. Access granted."
     }
 
@@ -126,6 +131,7 @@ async def register_user(auth_data: ConnectRequest):
                 "status": "pending_verification",
                 "user_id": auth_response.user.id,
                 "token": "", # No token yet
+                "refresh_token": "",
                 "message": "Registration successful. Please verify your email."
              }
 
@@ -133,6 +139,7 @@ async def register_user(auth_data: ConnectRequest):
             "status": "connected",
             "user_id": auth_response.user.id,
             "token": auth_response.session.access_token,
+            "refresh_token": auth_response.session.refresh_token,
             "message": "Biometric synchronization complete. Access granted."
         }
 
@@ -141,3 +148,31 @@ async def register_user(auth_data: ConnectRequest):
     except Exception as e:
         print(f"Register Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/refresh", response_model=ConnectResponse)
+async def refresh_session(refresh_data: RefreshRequest):
+    """
+    Refresh the access token using a refresh token.
+    """
+    supabase = get_supabase_client()
+    try:
+        # Supabase refresh session
+        # Note: gotrue-py usually auto-refreshes if you use the client, 
+        # but here we are stateless REST, so we explicity call refresh_session
+        
+        auth_response = supabase.auth.refresh_session(refresh_data.refresh_token)
+        
+        if not auth_response.session:
+             raise HTTPException(status_code=401, detail="Session refresh failed")
+
+        return {
+            "status": "refreshed",
+            "user_id": auth_response.user.id,
+            "token": auth_response.session.access_token,
+            "refresh_token": auth_response.session.refresh_token,
+            "message": "Session extended."
+        }
+    except Exception as e:
+        print(f"Refresh failed: {e}")
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+

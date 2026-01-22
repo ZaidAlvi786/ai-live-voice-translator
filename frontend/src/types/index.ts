@@ -40,6 +40,8 @@ export interface Meeting {
     status: string;
     total_cost?: number; // Enriched
     duration_seconds?: number; // Enriched
+    platform?: 'webrtc' | 'google_meet' | 'zoom';
+    external_url?: string;
 }
 
 export interface TelemetryPoint {
