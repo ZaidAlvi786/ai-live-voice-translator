@@ -5,12 +5,13 @@ import { User } from '@/types';
 interface AuthState {
     user: User | null;
     token: string | null;
+    refreshToken: string | null;
     isLoading: boolean;
     error: string | null;
     _hasHydrated: boolean;
 
     setUser: (user: User | null) => void;
-    setToken: (token: string | null) => void;
+    setTokens: (token: string | null, refreshToken: string | null) => void;
     setHasHydrated: (state: boolean) => void;
     signIn: () => Promise<void>; // Placeholder for Supabase logic
     signOut: () => Promise<void>;
@@ -23,12 +24,13 @@ export const useAuthStore = create<AuthState>()(
         (set, get) => ({
             user: null,
             token: null,
+            refreshToken: null,
             isLoading: true, // Start in loading state for "The Birth" check
             error: null,
             _hasHydrated: false,
 
             setUser: (user) => set({ user }),
-            setToken: (token) => set({ token }),
+            setTokens: (token, refreshToken) => set({ token, refreshToken }),
             setHasHydrated: (state) => set({ _hasHydrated: state }),
 
             signIn: async () => {
@@ -37,7 +39,7 @@ export const useAuthStore = create<AuthState>()(
             },
 
             signOut: async () => {
-                set({ user: null, token: null });
+                set({ user: null, token: null, refreshToken: null });
             },
 
             updateProfile: async (data: Partial<User>) => {
