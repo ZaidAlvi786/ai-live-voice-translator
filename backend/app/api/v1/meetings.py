@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from typing import List, Optional
 from pydantic import BaseModel
 from app.core.security import get_current_user
@@ -10,6 +10,8 @@ router = APIRouter()
 # --- Models ---
 class MeetingCreate(BaseModel):
     agent_id: str
+    platform: str = "webrtc"  # 'webrtc', 'google_meet', 'zoom'
+    external_url: Optional[str] = None
 
 class MeetingUpdate(BaseModel):
     status: Optional[str] = None
@@ -30,6 +32,8 @@ class MeetingResponse(BaseModel):
     # Enriched fields
     total_cost: Optional[float] = 0.0
     duration_seconds: Optional[int] = 0
+    platform: Optional[str] = "webrtc"
+    external_url: Optional[str] = None
 
 # --- Endpoints ---
 
@@ -75,6 +79,7 @@ async def list_meetings(agent_id: Optional[str] = None, user: dict = Depends(get
 
             m["total_cost"] = total_cost
             m["duration_seconds"] = duration
+            # Ensure new fields are present even if DB returns null (though Pydantic handles optional)
             cleaned_data.append(m)
 
         return cleaned_data
@@ -84,17 +89,19 @@ async def list_meetings(agent_id: Optional[str] = None, user: dict = Depends(get
         return []
 
 @router.post("/", response_model=MeetingResponse)
-async def create_meeting(meeting: MeetingCreate, user: dict = Depends(get_current_user)):
+async def create_meeting(meeting: MeetingCreate, background_tasks: BackgroundTasks, user: dict = Depends(get_current_user)):
     """
     Start a new meeting session.
     """
     supabase = get_supabase_client()
     
     # 1. Verify agent ownership
+    agent_name = "Neural Agent"
     try:
-        agent_check = supabase.table("agents").select("id").eq("id", meeting.agent_id).eq("user_id", user["id"]).single().execute()
+        agent_check = supabase.table("agents").select("id, name").eq("id", meeting.agent_id).eq("user_id", user["id"]).single().execute()
         if not agent_check.data:
              raise HTTPException(status_code=404, detail="Agent not found")
+        agent_name = agent_check.data.get("name", "Neural Agent")
     except Exception as e:
          print(f"Agent verification failed: {e}")
          raise HTTPException(status_code=404, detail="Agent not found or access denied")
@@ -104,10 +111,11 @@ async def create_meeting(meeting: MeetingCreate, user: dict = Depends(get_curren
         "user_id": user["id"],
         "agent_id": meeting.agent_id,
         "status": "active",
+        "platform": meeting.platform,
+        "external_url": meeting.external_url,
         # started_at defaults to now() in DB
     }
 
-    try:
     try:
         response = supabase.table("meetings").insert(meeting_data).execute()
         if not response.data:
@@ -124,6 +132,17 @@ async def create_meeting(meeting: MeetingCreate, user: dict = Depends(get_curren
              }).execute()
         except Exception as cost_err:
             print(f"Warning: Failed to init meeting costs: {cost_err}")
+
+        # --- TRIGGER MOCK SIMULATION (If External) ---
+        if new_meeting["platform"] != 'webrtc':
+            from app.services.meeting.mock_simulation import MockMeetingSimulation
+            background_tasks.add_task(
+                MockMeetingSimulation.start, 
+                new_meeting["id"], 
+                agent_name, 
+                new_meeting["platform"]
+            )
+        # ---------------------------------------------
 
         # Return with defaults
         new_meeting["total_cost"] = 0.0
@@ -156,7 +175,6 @@ async def update_meeting(meeting_id: str, update: MeetingUpdate, user: dict = De
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
 
-    try:
     try:
         response = supabase.table("meetings").update(update_data).eq("id", meeting_id).eq("user_id", user["id"]).execute()
         if not response.data:
