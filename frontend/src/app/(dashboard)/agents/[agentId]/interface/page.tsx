@@ -2,21 +2,32 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { Mic, Activity, Radio, SkipBack, Power } from 'lucide-react';
+import { Mic, Activity, Radio, SkipBack, Power, MessageSquare, Send, Zap } from 'lucide-react';
 import { GlassCard } from '@/components/dashboard/GlassCard';
 import { GlassButton } from '@/components/dom/GlassButton';
 import { useAgentStore } from '@/stores/useAgentStore';
-import { Agent, Meeting } from '@/types';
+import { useMeetingStore } from '@/stores/useMeetingStore'; // Use centralized store
+import { Agent } from '@/types';
 import { useAudioStream } from '@/hooks/useAudioStream';
-import { apiRequest } from '@/lib/api';
+import { Canvas } from '@react-three/fiber';
+import { ContextOrb } from '@/components/3d/ContextOrb';
+import { Stars } from '@react-three/drei';
 
 export default function AgentInterfacePage() {
     const router = useRouter();
     const params = useParams();
     const { agents, fetchAgents } = useAgentStore();
+    const {
+        activeMeetingId,
+        activeTranscript,
+        startMeeting,
+        endMeeting,
+        subscribeToMeeting,
+        meetings // access to get meeting details
+    } = useMeetingStore();
+
     const [agent, setAgent] = useState<Agent | null>(null);
-    const [meeting, setMeeting] = useState<Meeting | null>(null);
-    const [error, setError] = useState<string | null>(null);
+    const [inputMessage, setInputMessage] = useState('');
 
     // Fetch Agent
     useEffect(() => {
@@ -30,58 +41,66 @@ export default function AgentInterfacePage() {
         }
     }, [params.agentId, agents]);
 
+    // Derive active meeting object if exists
+    const currentMeeting = meetings.find(m => m.id === activeMeetingId);
+
+    // Subscribe to transcript if meeting is active
+    useEffect(() => {
+        if (activeMeetingId) {
+            subscribeToMeeting(activeMeetingId);
+        }
+    }, [activeMeetingId, subscribeToMeeting]);
+
     // Audio Stream Hook
     const { connect, disconnect, startAudio, stopAudio, isConnected, isRecording } = useAudioStream({
-        meetingId: meeting?.id || '',
+        meetingId: activeMeetingId || '',
         onConnect: () => {
             console.log("Connected to Neural Core");
-            startAudio(); // Auto-start mic on connect
+            startAudio();
         },
         onDisconnect: () => {
             console.log("Disconnected from Neural Core");
         },
-        onError: (err) => {
-            setError("Connection Error: " + err.message);
-        }
+        onError: (err) => console.error("Audio Error:", err)
     });
 
-    // Start Session (Create Meeting & Connect)
-    const handleStartSession = useCallback(async () => {
+    // Handle Start/Stop
+    const handleToggleSession = async () => {
         if (!agent) return;
-        try {
-            console.log("Initializing Neural Session...");
-            const newMeeting = await apiRequest<Meeting>('/meetings/', 'POST', { agent_id: agent.id });
-            setMeeting(newMeeting);
 
-            // Connection happens via useEffect when meeting.id is set? 
-            // Better to trigger explicit connect to avoid loops if meeting persists.
-            // But hook depends on meetingId. 
-        } catch (err) {
-            console.error("Failed to start session", err);
-            setError("Failed to initialize session");
-        }
-    }, [agent]);
-
-    // Effect to connect when meeting is created
-    useEffect(() => {
-        if (meeting?.id) {
-            connect();
-        }
-    }, [meeting, connect]);
-
-    const handleEndSession = useCallback(async () => {
-        disconnect();
-        if (meeting) {
-            // Optimistically close
+        if (activeMeetingId) {
+            // Stop
+            disconnect();
+            await endMeeting(activeMeetingId);
+        } else {
+            // Start
             try {
-                await apiRequest(`/meetings/${meeting.id}`, 'PATCH', { status: 'completed' });
+                await startMeeting(agent.id, 'webrtc');
+                // Connection is handled by useEffect when activeMeetingId updates? 
+                // Actually useAudioStream needs the ID. 
+                // We'll let the effect below handle connection.
             } catch (e) {
-                console.error("Failed to close meeting record", e);
+                console.error("Failed to start:", e);
             }
         }
-        setMeeting(null);
-        router.push(`/agents/${agent?.id}/logs`);
-    }, [disconnect, meeting, router, agent]);
+    };
+
+    // Auto-connect audio when meeting starts
+    useEffect(() => {
+        if (activeMeetingId && !isConnected) {
+            connect();
+        } else if (!activeMeetingId && isConnected) {
+            disconnect();
+        }
+    }, [activeMeetingId, isConnected, connect, disconnect]);
+
+    // Chat Scroll Ref
+    const scrollRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+    }, [activeTranscript]);
 
 
     if (!agent) {
@@ -93,117 +112,138 @@ export default function AgentInterfacePage() {
         );
     }
 
-    const isLive = isConnected && isRecording;
+    const isLive = !!activeMeetingId;
 
     return (
-        <div className="relative w-full min-h-full flex flex-col gap-6">
-            <div className="flex items-center gap-4">
-                <GlassButton
-                    variant="secondary"
-                    onClick={() => router.back()}
-                    className="!p-2"
-                >
-                    <SkipBack className="w-4 h-4" />
-                </GlassButton>
-                <div>
-                    <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-3">
-                        {agent.name}
-                        <span className={`text-[10px] font-mono px-2 py-0.5 rounded border transition-colors ${isLive
-                            ? 'bg-green-500/20 text-green-400 border-green-500/30'
-                            : 'bg-white/5 text-white/40 border-white/10'}`}>
-                            {isLive ? 'ONLINE' : 'OFFLINE'}
-                        </span>
-                    </h1>
-                    <p className="text-white/40 text-xs font-mono mt-1">
-                        ID: {agent.id} • {agent.role || 'Unassigned Unit'}
-                    </p>
+        <div className="relative w-full h-[calc(100vh-100px)] flex flex-col gap-6">
+            {/* Header */}
+            <div className="flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-4">
+                    <GlassButton variant="secondary" onClick={() => router.back()} className="!p-2">
+                        <SkipBack className="w-4 h-4" />
+                    </GlassButton>
+                    <div>
+                        <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-3">
+                            {agent.name}
+                            <span className={`text-[10px] font-mono px-2 py-0.5 rounded border transition-colors ${isLive
+                                ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                                : 'bg-white/5 text-white/40 border-white/10'}`}>
+                                {isLive ? 'ONLINE' : 'STANDBY'}
+                            </span>
+                        </h1>
+                        <p className="text-white/40 text-xs font-mono mt-1">
+                            NEURAL INTERFACE // {agent.id}
+                        </p>
+                    </div>
                 </div>
+
+                {isLive && (
+                    <div className="flex items-center gap-4 bg-white/5 px-4 py-2 rounded-full border border-white/10">
+                        <div className="flex items-center gap-2">
+                            <Zap size={12} className="text-yellow-400" />
+                            <span className="text-xs font-mono text-white/60">
+                                {currentMeeting?.total_cost ? `$${currentMeeting.total_cost.toFixed(4)}` : "$0.0000"}
+                            </span>
+                        </div>
+                        <div className="w-px h-3 bg-white/10" />
+                        <div className="flex items-center gap-2">
+                            <Activity size={12} className="text-cyan-400" />
+                            <span className="text-xs font-mono text-white/60">
+                                {currentMeeting?.duration_seconds || 0}s
+                            </span>
+                        </div>
+                    </div>
+                )}
             </div>
 
-            {error && (
-                <div className="p-4 rounded bg-red-500/10 border border-red-500/20 text-red-400 text-sm font-mono">
-                    {">"} SYSTEM ERROR: {error}
-                </div>
-            )}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[600px]">
-                {/* Main Visualizer Area */}
-                <GlassCard title="Active Visualizer" className="lg:col-span-2 flex flex-col justify-between relative overflow-hidden">
-                    <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/40 pointer-events-none" />
+                {/* 3D Visualizer */}
+                <GlassCard title="Neural Visualizer" className="lg:col-span-2 relative overflow-hidden !p-0 flex flex-col border-cyan-500/20">
+                    <div className="absolute inset-0 bg-black/40" />
 
-                    <div className="flex justify-between items-start z-10">
-                        <div className="flex gap-2">
-                            {isLive && (
-                                <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-red-500/10 border border-red-500/20">
-                                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
-                                    <span className="text-[10px] text-red-400 font-mono">LIVE FEED</span>
-                                </div>
+                    <div className="absolute inset-0">
+                        <Canvas camera={{ position: [0, 0, 6] }}>
+                            <ambientLight intensity={0.5} />
+                            <pointLight position={[10, 10, 10]} intensity={1} color="#00F2FF" />
+                            <Stars radius={50} count={2000} factor={3} fade speed={1} />
+
+                            <ContextOrb mode={isLive ? 'live' : 'idle'} />
+                        </Canvas>
+                    </div>
+
+                    <div className="absolute bottom-8 left-0 right-0 flex justify-center z-10">
+                        <GlassButton
+                            variant={isLive ? 'secondary' : 'primary'}
+                            onClick={handleToggleSession}
+                            className={`w-64 py-4 flex items-center justify-center gap-3 font-bold tracking-widest uppercase transition-all ${isLive ? '!bg-red-500/10 !border-red-500/50 !text-red-500 hover:!bg-red-500/20' : 'shadow-[0_0_30px_rgba(0,242,255,0.3)]'
+                                }`}
+                        >
+                            {isLive ? (
+                                <><Power className="w-4 h-4" /> Terminate Link</>
+                            ) : (
+                                <><Mic className="w-4 h-4" /> Initialize Voice Link</>
                             )}
-                        </div>
-                    </div>
-
-                    <div className="flex-1 flex items-center justify-center">
-                        {/* Audio Orb */}
-                        <div className={`relative w-64 h-64 rounded-full border flex items-center justify-center transition-all duration-1000 ${isLive ? 'border-cyan-500/50 animate-pulse-slow' : 'border-white/5'
-                            }`}>
-                            <div className={`absolute inset-0 rounded-full transition-opacity duration-1000 ${isLive ? 'bg-cyan-500/10 blur-xl opacity-100' : 'bg-transparent opacity-0'
-                                }`}></div>
-                            <Mic className={`w-16 h-16 transition-colors duration-300 ${isLive ? 'text-cyan-400' : 'text-white/20'
-                                }`} />
-                        </div>
-                    </div>
-
-                    <div className="z-10 flex justify-center gap-4 pt-8">
-                        {!isLive ? (
-                            <GlassButton
-                                variant="primary"
-                                onClick={handleStartSession}
-                                className="w-48 flex items-center justify-center gap-2"
-                            >
-                                <Power className="w-4 h-4" />
-                                Initialize Link
-                            </GlassButton>
-                        ) : (
-                            <GlassButton
-                                variant="primary"
-                                onClick={handleEndSession}
-                                className="w-48 flex items-center justify-center gap-2 !bg-red-500/20 !border-red-500/30 !text-red-400 hover:!bg-red-500/30"
-                            >
-                                <Radio className="w-4 h-4" />
-                                End Transmission
-                            </GlassButton>
-                        )}
+                        </GlassButton>
                     </div>
                 </GlassCard>
 
-                {/* Side Panel: Context & Stats */}
-                <GlassCard title="Neural Metrics" className="flex flex-col gap-4">
-                    <h3 className="text-sm font-bold text-white uppercase tracking-widest border-b border-white/5 pb-2">
-                        Neural Metrics
-                    </h3>
-
-                    <div className="space-y-4">
-                        <div className="bg-white/5 rounded-lg p-3 border border-white/5">
-                            <span className="text-[10px] text-white/40 uppercase block mb-1">Latency</span>
-                            <span className="text-xl font-mono text-cyan-400">
-                                {isLive ? '24' : '--'} <span className="text-xs text-white/40">ms</span>
-                            </span>
-                        </div>
-                        <div className="bg-white/5 rounded-lg p-3 border border-white/5">
-                            <span className="text-[10px] text-white/40 uppercase block mb-1">Session ID</span>
-                            <span className="text-xs font-mono text-white/60 truncate block" title={meeting?.id}>
-                                {meeting?.id || 'NO_SESSION'}
-                            </span>
+                {/* Chat / Transcript Interface */}
+                <GlassCard title="Live Transcript" className="flex flex-col !p-0 overflow-hidden bg-black/40 backdrop-blur-md">
+                    <div className="p-4 border-b border-white/5 bg-white/5 flex items-center justify-between">
+                        <span className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-2">
+                            <MessageSquare size={14} className="text-cyan-400" /> Live Transcript
+                        </span>
+                        <div className="flex gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse delay-75" />
+                            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse delay-150" />
                         </div>
                     </div>
 
-                    <h3 className="text-sm font-bold text-white uppercase tracking-widest border-b border-white/5 pb-2 mt-4">
-                        Active Context
-                    </h3>
-                    <div className="flex-1 bg-black/20 rounded-lg p-3 border border-white/5 overflow-y-auto min-h-0 text-xs text-white/60 font-mono">
-                        <p>{">"} System initialized...</p>
-                        <p>{">"} Voice model: {agent.voice_model_id || 'Default'}</p>
-                        {isLive && <p className="text-cyan-400">{">"} Audio stream active...</p>}
+                    <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 font-mono text-sm custom-scrollbar">
+                        {activeTranscript.length === 0 ? (
+                            <div className="h-full flex flex-col items-center justify-center text-center text-white/20 p-8">
+                                <Activity className="w-8 h-8 mb-2 opacity-50" />
+                                <p className="text-xs">Awaiting vocal input...</p>
+                            </div>
+                        ) : (
+                            activeTranscript.map((msg: any, i: number) => (
+                                <div key={i} className={`flex flex-col ${msg.speaker === 'agent' ? 'items-start' : 'items-end'}`}>
+                                    <div className={`max-w-[85%] p-3 rounded-lg ${msg.speaker === 'agent'
+                                        ? 'bg-white/5 border border-white/10 text-cyan-100 rounded-tl-none'
+                                        : 'bg-cyan-500/10 border border-cyan-500/20 text-white rounded-tr-none'
+                                        }`}>
+                                        <div className="text-[9px] uppercase tracking-widest opacity-40 mb-1">
+                                            {msg.speaker === 'agent' ? agent.name : 'YOU'}
+                                        </div>
+                                        <div className="leading-relaxed">{msg.content}</div>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+
+                    {/* Input Area (Mocking text input for now, primarily voice) */}
+                    <div className="p-4 border-t border-white/5 bg-white/5">
+                        <div className="relative">
+                            <input
+                                type="text"
+                                value={inputMessage}
+                                onChange={(e) => setInputMessage(e.target.value)}
+                                placeholder="Type to inject context..."
+                                className="w-full bg-black/40 border border-white/10 rounded-lg pl-4 pr-10 py-3 text-white text-xs focus:outline-none focus:border-cyan-500/50 transition-colors"
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && inputMessage) {
+                                        // TODO: Implement text injection
+                                        setInputMessage('');
+                                    }
+                                }}
+                            />
+                            <button className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded hover:bg-white/10 text-cyan-400 transition-colors">
+                                <Send size={14} />
+                            </button>
+                        </div>
                     </div>
                 </GlassCard>
             </div>
