@@ -155,27 +155,62 @@ export function useAudioStream({ meetingId, onConnect, onDisconnect, onError }: 
 
     // --- Audio Output Handling ---
 
+    // Scheduling for smooth playback
+    const nextStartTime = useRef<number>(0);
+    const pendingBuffer = useRef<Uint8Array>(new Uint8Array(0));
+
     const playAudioChunk = async (arrayBuffer: ArrayBuffer) => {
-        if (!audioContext.current) return;
+        if (!audioContext.current) {
+            audioContext.current = new (window.AudioContext || (window as any).webkitAudioContext)({
+                sampleRate: 16000, // or 44100, ctx will adapt
+            });
+        }
+        const ctx = audioContext.current;
 
-        // This is a naive implementation. 
-        // Real-time streaming requires a jitter buffer and scheduling.
-        // For scaffold: decode and play immediately (may have gaps).
-
-        // Note: decodeAudioData accepts full files/chunks with headers. 
-        // If backend sends raw PCM, we need to wrap it or use a custom buffer source.
-
-        // Assuming backend sends raw Int16 PCM:
-        // We would need to convert back to Float32 and schedule.
-        // For simplicity, let's assume valid audio chunks (e.g. mp3/wav) OR raw PCM we convert.
+        // Append new chunk to pending buffer
+        const newChunk = new Uint8Array(arrayBuffer);
+        const newPending = new Uint8Array(pendingBuffer.current.length + newChunk.length);
+        newPending.set(pendingBuffer.current);
+        newPending.set(newChunk, pendingBuffer.current.length);
+        pendingBuffer.current = newPending;
 
         try {
-            // Simplified: Expecting raw PCM? Or decoded?
-            // Let's assume we create a buffer and play.
-            // ... implementation deferred for complexity ...
-            console.log("Received audio chunk, size:", arrayBuffer.byteLength);
+            // Attempt to decode the *entire* pending buffer
+            // clone the buffer because decodeAudioData detaches it
+            const bufferToDecode = pendingBuffer.current.slice(0).buffer;
+
+            // We use a promise wrapper for decodeAudioData to handle older browser callbacks if needed, 
+            // but modern returns promise.
+            const audioBuffer = await ctx.decodeAudioData(bufferToDecode);
+
+            // If success, we have a valid audio frame(s). 
+            // PROBLEM: In MP3, we might decode the same frames again if we keep the buffer?
+            // NO. If we successfully decode, it means we found valid frames.
+            // Ideally, we should only clear the *consumed* bytes, but decodeAudioData doesn't tell us bytes consumed.
+            // STRATEGY FOR SCAFFOLD: 
+            // If it decodes, play it and CLEAR pending buffer. 
+            // This assumes the chunk *ended* on a frame boundary or decodeAudioData ignored the trailing bytes.
+            // This is "optimistic streaming". 
+
+            pendingBuffer.current = new Uint8Array(0); // Clear
+
+            const source = ctx.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(ctx.destination);
+
+            // Schedule
+            const now = ctx.currentTime;
+            // If nextStartTime is in the past (gap), reset to now
+            if (nextStartTime.current < now) {
+                nextStartTime.current = now;
+            }
+
+            source.start(nextStartTime.current);
+            nextStartTime.current += audioBuffer.duration;
+
         } catch (e) {
-            console.error("Error playing audio chunk", e);
+            // Decoding failed, likely incomplete frame. Keep buffer and wait for next chunk.
+            // console.debug("Buffering audio chunk...");
         }
     };
 
