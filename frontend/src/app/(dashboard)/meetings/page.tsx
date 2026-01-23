@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import { useMeetingStore } from '@/stores/useMeetingStore';
 import { useAgentStore } from '@/stores/useAgentStore';
 import * as THREE from 'three';
+import { useAudioStream } from '@/hooks/useAudioStream';
 
 // Components
 import { ContextOrb } from '@/components/3d/ContextOrb';
@@ -223,6 +224,24 @@ const EnhancedMeetingSlab = ({ meeting, position, onClick }: any) => {
 export default function MeetingsPage() {
     const { meetings, fetchMeetings, activeMeetingId, setActiveMeeting, activeTranscript, subscribeToMeeting, viewMode, setViewMode, startMeeting, endMeeting } = useMeetingStore();
     const { agents, fetchAgents } = useAgentStore();
+
+    // Audio Stream Hook
+    const { connect, disconnect, startAudio } = useAudioStream({
+        meetingId: activeMeetingId || '',
+        onConnect: () => {
+            console.log("Audio Connected - Starting Mic");
+            startAudio();
+        },
+        onError: (err) => console.error("Audio Stream Error:", err)
+    });
+
+    useEffect(() => {
+        if (activeMeetingId) {
+            connect();
+        } else {
+            disconnect();
+        }
+    }, [activeMeetingId]);
 
     // Agent Selector State
     const [showAgentSelector, setShowAgentSelector] = useState(false);
