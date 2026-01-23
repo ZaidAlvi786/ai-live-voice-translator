@@ -10,6 +10,14 @@ export const metadata: Metadata = {
     description: 'Spatial AI Agent Platform',
 };
 
+import { ThemeProvider } from '@/providers/ThemeProvider';
+
+// ...
+
+import { GlobalLoader } from '@/components/ui/GlobalLoader';
+
+// ...
+
 export default function RootLayout({
     children,
 }: {
@@ -18,16 +26,19 @@ export default function RootLayout({
     return (
         <html lang="en">
             <body className={inter.className}>
-                {/* The 3D World Layer */}
-                <Scene />
+                <ThemeProvider>
+                    <GlobalLoader />
+                    {/* The 3D World Layer */}
+                    <Scene />
 
-                {/* The UI Overlay Layer */}
-                <main className="relative z-10 w-full h-screen pointer-events-none">
-                    {/* Allow pointer events only on interactive children */}
-                    <div className="w-full h-full pointer-events-auto">
-                        {children}
-                    </div>
-                </main>
+                    {/* The UI Overlay Layer */}
+                    <main className="relative z-10 w-full h-screen pointer-events-none">
+                        {/* Allow pointer events only on interactive children */}
+                        <div className="w-full h-full pointer-events-auto">
+                            {children}
+                        </div>
+                    </main>
+                </ThemeProvider>
             </body>
         </html>
     );
