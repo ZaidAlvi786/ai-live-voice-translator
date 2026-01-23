@@ -27,6 +27,13 @@ class AgentResponse(BaseModel):
     status: str
     created_at: str
 
+class KnowledgeText(BaseModel):
+    title: str
+    content: str
+
+class KnowledgeURL(BaseModel):
+    url: str
+
 # --- Endpoints ---
 
 @router.get("/options")
@@ -211,17 +218,77 @@ async def upload_knowledge(
     # Limit file size/type in production
     content = await file.read()
     
-    # 3. Simple Text Extraction (Assuming .txt for MVP, or extract text from bytes)
-    # For PDF support, we'd need PyPDF2 or similar. 
-    # Let's support plain text now, and maybe basic PDF parsing if we add a dependency.
-    # We will assume it's utf-8 text file.
-    try:
-        text_content = content.decode("utf-8")
-    except UnicodeDecodeError:
-        raise HTTPException(status_code=400, detail="Only UTF-8 text files are supported currently")
-        
-    # 4. Ingest via RAG Service
+    # 3. Ingest via RAG Service
+    # We pass the bytes directly to let RAG service handle text/pdf extraction
     rag = RAGService()
-    await rag.ingest_document(agent_id, user["id"], file.filename, text_content)
+    await rag.ingest_document(agent_id, user["id"], file.filename, content)
     
     return {"message": "Document ingested successfully", "filename": file.filename}
+
+@router.delete("/{agent_id}/knowledge/{filename}")
+async def delete_knowledge(
+    agent_id: str, 
+    filename: str,
+    user: dict = Depends(get_current_user)
+):
+    """
+    Delete a document from knowledge base.
+    """
+    supabase = get_supabase_client()
+    agent_check = supabase.table("agents").select("id").eq("id", agent_id).eq("user_id", user["id"]).execute()
+    if not agent_check.data:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    rag = RAGService()
+    await rag.delete_document(agent_id, filename)
+    return {"message": "Document deleted"}
+
+@router.get("/{agent_id}/knowledge")
+async def list_knowledge(agent_id: str, user: dict = Depends(get_current_user)):
+    """
+    List all knowledge sources for an agent.
+    """
+    # 1. Verify Agent Ownership (Optional for listing? Better safe)
+    supabase = get_supabase_client()
+    agent_check = supabase.table("agents").select("id").eq("id", agent_id).eq("user_id", user["id"]).execute()
+    if not agent_check.data:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    rag = RAGService()
+    return await rag.list_documents(agent_id)
+
+@router.post("/{agent_id}/knowledge/text")
+async def ingest_text(
+    agent_id: str, 
+    data: KnowledgeText,
+    user: dict = Depends(get_current_user)
+):
+    """
+    Ingest raw text.
+    """
+    supabase = get_supabase_client()
+    agent_check = supabase.table("agents").select("id").eq("id", agent_id).eq("user_id", user["id"]).execute()
+    if not agent_check.data:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    
+    rag = RAGService()
+    await rag.ingest_text(agent_id, user["id"], data.title, data.content)
+    return {"message": "Text ingested successfully"}
+
+@router.post("/{agent_id}/knowledge/url")
+async def ingest_url(
+    agent_id: str, 
+    data: KnowledgeURL, 
+    user: dict = Depends(get_current_user)
+):
+    """
+    Ingest URL.
+    """
+    supabase = get_supabase_client()
+    agent_check = supabase.table("agents").select("id").eq("id", agent_id).eq("user_id", user["id"]).execute()
+    if not agent_check.data:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    
+    rag = RAGService()
+    await rag.ingest_url(agent_id, user["id"], data.url)
+    return {"message": "URL ingested successfully"}
