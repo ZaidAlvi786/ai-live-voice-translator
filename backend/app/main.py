@@ -31,12 +31,13 @@ async def health_check():
     return {"status": "alive", "service": "neuralis-api"}
 
 # Include Routers
-from app.api.v1 import agents, training, ws, meetings, auth, users
+from app.api.v1 import agents, training, ws, meetings, auth, users, notifications
 app.include_router(agents.router, prefix="/api/v1/agents", tags=["agents"])
 app.include_router(training.router, prefix="/api/v1/training", tags=["training"])
 app.include_router(meetings.router, prefix="/api/v1/meetings", tags=["meetings"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
+app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["notifications"])
 app.include_router(ws.router, tags=["websockets"])
 
 @app.get("/")
