@@ -7,15 +7,33 @@ from .base import LLMService
 from ...services.finops_service import finops_service
 
 class OpenAILLMService(LLMService):
-    def __init__(self):
+    def __init__(self, user_id: str = None):
         # OpenRouter Support
+        api_key = os.getenv("OPENAI_API_KEY")
+        base_url = None
+
         if os.getenv("OPENROUTER_API_KEY"):
-            self.client = AsyncOpenAI(
-                api_key=os.getenv("OPENROUTER_API_KEY"),
-                base_url="https://openrouter.ai/api/v1"
-            )
-        else:
-            self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            api_key = os.getenv("OPENROUTER_API_KEY")
+            base_url = "https://openrouter.ai/api/v1"
+            
+        # USER OVERRIDE
+        if user_id:
+            from app.db.supabase import get_supabase_client
+            try:
+                supabase = get_supabase_client()
+                settings = supabase.table("user_settings").select("api_keys").eq("user_id", user_id).single().execute()
+                if settings.data and settings.data.get("api_keys"):
+                    user_keys = settings.data["api_keys"]
+                    if user_keys.get("openai"):
+                        api_key = user_keys["openai"]
+                        base_url = None # Reset unless we store openrouter key too
+            except Exception as e:
+                print(f"Failed to load user keys for LLM: {e}")
+
+        if not api_key:
+             print("Warning: No LLM API Key found")
+
+        self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
     async def plan_response(self, context: str, history: list) -> Dict[str, Any]:
         """

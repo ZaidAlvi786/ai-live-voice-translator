@@ -9,10 +9,15 @@
 }
 
 body {
-    color: rgb(var(--foreground-rgb));
+    @apply bg-gray-50 text-slate-900 dark:bg-[#020408] dark:text-white;
+}
+
+.dark body {
     background: radial-gradient(circle at center, #0B111D 0%, #020408 100%);
+}
+
+body {
     overflow: hidden;
-    /* App-like feel, no scroll by default */
 }
 
 @layer utilities {

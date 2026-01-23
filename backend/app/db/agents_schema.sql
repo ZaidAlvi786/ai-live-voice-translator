@@ -245,4 +245,44 @@ create policy "Users can update costs for their meetings"
   on public.meeting_costs for update
   using (exists (select 1 from public.meetings where id = meeting_id and user_id = auth.uid()));
 
+-- USER SETTINGS SCHEMA
+create table public.user_settings (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  theme text default 'dark',
+  notifications_enabled boolean default true,
+  api_keys jsonb default '{}'::jsonb, -- e.g. {"openai": "sk-...", "deepgram": "..."}
+  updated_at timestamp with time zone default now()
+);
+
+alter table public.user_settings enable row level security;
+
+create policy "Users can view their own settings"
+  on public.user_settings for select
+  using (auth.uid() = user_id);
+
+create policy "Users can update their own settings"
+  on public.user_settings for update
+  using (auth.uid() = user_id);
+
+create policy "Users can insert their own settings"
+  on public.user_settings for insert
+  with check (auth.uid() = user_id);
+
+-- NOTIFICATIONS SCHEMA
+create table public.notifications (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  title text not null,
+  message text not null,
+  type text default 'info', -- 'info', 'success', 'warning', 'error'
+  read boolean default false,
+  created_at timestamp with time zone default now()
+);
+
+alter table public.notifications enable row level security;
+
+create policy "Users can manage own notifications"
+  on public.notifications for all
+  using (auth.uid() = user_id);
+
 

@@ -9,3 +9,4 @@ python-jose[cryptography]
 passlib[bcrypt]
 websockets
 aiohttp>=3.9.0
+pypdf
