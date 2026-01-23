@@ -26,9 +26,23 @@ class AIOrchestrator:
         
         # Queues
         self.audio_input_queue = asyncio.Queue()
-        self.text_output_queue = asyncio.Queue()
+        self.audio_output_queue = asyncio.Queue()
 
     # ... (ingest_audio, audio_generator, run_pipeline match existing code) ...
+
+    async def ingest_audio(self, audio_data: bytes):
+        """
+        Entry point for raw audio chunks from WebSocket.
+        """
+        await self.audio_input_queue.put(audio_data)
+
+    async def audio_generator(self) -> AsyncGenerator[bytes, None]:
+        """
+        Yields audio chunks from the input queue for STT.
+        """
+        while True:
+            chunk = await self.audio_input_queue.get()
+            yield chunk
 
     async def run_pipeline(self):
         """Main Orchestration Loop."""
@@ -135,15 +149,10 @@ class AIOrchestrator:
             if self.interrupt_event.is_set():
                 print("TTS Interrupted")
                 break
-            # Yield this to the WebSocket connection manager (via queue or direct ref)
-            # For this scaffold, we just iterate to trigger the TTS generator
-            pass
+            # Use queue for output
+            await self.audio_output_queue.put(audio_chunk)
             
         self.is_speaking = False
-        
-    # ... (get_audio_output_stream) ...
-
-    async def get_audio_output_stream(self):
         """
         Since process_turn yields audio, we need a way to consume it.
         The current architecture implies `process_turn` is triggered by `ingest_audio` loop.
