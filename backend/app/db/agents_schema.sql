@@ -286,3 +286,9 @@ create policy "Users can manage own notifications"
   using (auth.uid() = user_id);
 
 
+
+-- ENABLE REALTIME SUBSCRIPTIONS
+-- Essential for the 'Awaiting Signal' UI to receive the first transcript packet
+alter publication supabase_realtime add table public.meeting_transcripts;
+alter publication supabase_realtime add table public.meeting_costs;
+alter publication supabase_realtime add table public.meetings;
