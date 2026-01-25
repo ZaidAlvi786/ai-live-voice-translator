@@ -116,3 +116,22 @@ class OpenAILLMService(LLMService):
         # Using a dummy session ID for now, usually passed in context
         await finops_service.log_cost("session_123", "LLM_TOKEN_INPUT", input_tokens, "OpenAI")
         await finops_service.log_cost("session_123", "LLM_TOKEN_OUTPUT", output_tokens, "OpenAI")
+
+    async def generate(self, system_prompt: str, user_prompt: str, max_tokens: int) -> str:
+        """
+        Raw generation for AgentRuntime.
+        """
+        try:
+            response = await self.client.chat.completions.create(
+                model="gpt-4-1106-preview",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                max_tokens=max_tokens,
+                temperature=0.3 # Low temp for deterministic adherence
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            print(f"LLM Raw Generation failed: {e}")
+            raise e
