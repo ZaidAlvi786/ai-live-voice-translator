@@ -13,11 +13,13 @@ import { useAudioStream } from '@/hooks/useAudioStream';
 // SpatialModal is defined inline below (refactor later if needed)
 
 import { motion } from 'framer-motion';
-import { Activity, Cpu, Clock, Zap, Link as LinkIcon, Globe, CheckCircle } from 'lucide-react';
+import { Activity, Cpu, Clock, Zap, Link as LinkIcon, Globe, CheckCircle, ShieldAlert } from 'lucide-react';
+import { ConfirmationModal } from '@/components/ui/ConfirmationModal';
 
 // Reuse existing Modal logic but enhanced
 const SpatialModal = ({ meeting, activeTranscript, onClose, onEnd }: any) => {
     const [showSummary, setShowSummary] = useState(false);
+    const [isConfirmOpen, setIsConfirmOpen] = useState(false);
 
     if (!meeting) return null;
 
@@ -39,6 +41,24 @@ const SpatialModal = ({ meeting, activeTranscript, onClose, onEnd }: any) => {
                 className="pointer-events-auto relative w-[900px] h-[600px] bg-black/80 border border-[#00F2FF]/20 rounded-xl overflow-hidden shadow-[0_0_100px_rgba(0,242,255,0.1)] flex"
                 onClick={(e) => e.stopPropagation()}
             >
+                {/* TRUST & LATENCY HUD */}
+                <div className="absolute top-4 right-4 flex items-center gap-4 z-50">
+                     {/* State Visualizer */}
+                     <div className="flex items-center gap-2 px-3 py-1 bg-black/50 border border-white/10 rounded-full backdrop-blur-md">
+                        <div className={`w-2 h-2 rounded-full ${meeting.status === 'active' ? 'bg-[#00F2FF] animate-pulse' : 'bg-red-500'}`} />
+                        <span className="text-[10px] font-mono text-[#00F2FF] uppercase tracking-widest">
+                            {meeting.status === 'active' ? 'LIVE CONNECTION' : 'OFFLINE'}
+                        </span>
+                     </div>
+                     
+                     {/* Compliance Badge */}
+                     <div className="flex items-center gap-2 px-3 py-1 bg-[#00F2FF]/10 border border-[#00F2FF]/20 rounded-full backdrop-blur-md">
+                        <ShieldAlert className="w-3 h-3 text-[#00F2FF]" />
+                        <span className="text-[10px] font-mono text-[#00F2FF] uppercase tracking-widest">
+                            ARMED: {meeting.mode || "INTERVIEW"}
+                        </span>
+                     </div>
+                </div>
                 {!showSummary ? (
                     <>
                         {/* Left: Intel */}
@@ -83,8 +103,7 @@ const SpatialModal = ({ meeting, activeTranscript, onClose, onEnd }: any) => {
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        onEnd(meeting.id);
-                                        setShowSummary(true);
+                                        setIsConfirmOpen(true);
                                     }}
                                     className="mt-auto py-3 bg-red-500/10 border border-red-500/50 hover:bg-red-500/20 text-red-500 font-bold uppercase tracking-widest text-xs transition-colors rounded"
                                 >
@@ -159,6 +178,21 @@ const SpatialModal = ({ meeting, activeTranscript, onClose, onEnd }: any) => {
                     </div>
                 )}
             </motion.div>
+
+            {/* Confirmation Modal */}
+            <ConfirmationModal 
+                isOpen={isConfirmOpen}
+                onClose={() => setIsConfirmOpen(false)}
+                onConfirm={() => {
+                    setIsConfirmOpen(false);
+                    onEnd(meeting.id);
+                    setShowSummary(true);
+                }}
+                title="Terminate Session?"
+                description="This will immediately stop the agent and generate a final mission report. This action cannot be undone."
+                type="danger"
+                confirmText="Terminate"
+            />
         </motion.div>
     );
 }
@@ -192,6 +226,8 @@ export default function MeetingsPage() {
     const [showAgentSelector, setShowAgentSelector] = useState(false);
     const [joinMode, setJoinMode] = useState<'internal' | 'external'>('internal');
     const [externalUrl, setExternalUrl] = useState('');
+    const [agentMode, setAgentMode] = useState<'interview' | 'standup'>('interview');
+    const [isArmed, setIsArmed] = useState(false);
 
     const setMode = useSpatialStore(state => state.setMode);
 
@@ -261,6 +297,39 @@ export default function MeetingsPage() {
                                 </div>
                             </div>
 
+                            {/* ARMING & MODE CONTROLS */}
+                            <div className="mb-6 grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-xs text-white/40 font-mono uppercase">Agent Mode</label>
+                                    <div className="flex bg-white/5 rounded-lg border border-white/5 p-1">
+                                         <button 
+                                            onClick={() => setAgentMode('interview')}
+                                            className={`flex-1 py-1.5 rounded text-xs font-medium transition-all ${agentMode === 'interview' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/50' : 'text-white/40 hover:text-white'}`}
+                                         >
+                                            Interview
+                                         </button>
+                                         <button 
+                                            onClick={() => setAgentMode('standup')}
+                                            className={`flex-1 py-1.5 rounded text-xs font-medium transition-all ${agentMode === 'standup' ? 'bg-green-500/20 text-green-400 border border-green-500/50' : 'text-white/40 hover:text-white'}`}
+                                         >
+                                            Standup
+                                         </button>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-xs text-white/40 font-mono uppercase">Safety Interlock</label>
+                                    <div 
+                                        onClick={() => setIsArmed(!isArmed)}
+                                        className={`cursor-pointer h-[34px] rounded-lg border flex items-center px-3 gap-2 transition-all ${isArmed ? 'bg-red-500/20 border-red-500/50' : 'bg-white/5 border-white/10'}`}
+                                    >
+                                        <div className={`w-2 h-2 rounded-full transition-colors ${isArmed ? 'bg-red-500 animate-pulse' : 'bg-white/20'}`} />
+                                        <span className={`text-xs font-bold uppercase ${isArmed ? 'text-red-400' : 'text-white/40'}`}>
+                                            {isArmed ? 'ARMED & READY' : 'Test Mode (Silent)'}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
                             {joinMode === 'external' && (
                                 <div className="mb-6 space-y-2">
                                     <label className="text-xs text-white/40 font-mono uppercase">Meeting URL (Meet / Zoom)</label>
@@ -290,15 +359,22 @@ export default function MeetingsPage() {
                                                 alert("Please enter a meeting URL");
                                                 return;
                                             }
+                                            if (!isArmed) {
+                                                alert("You must ARM the agent to join a live session.");
+                                                return;
+                                            }
                                             startMeeting(
                                                 agent.id,
                                                 joinMode === 'external' ? (externalUrl.includes('zoom') ? 'zoom' : 'google_meet') : 'webrtc',
-                                                joinMode === 'external' ? externalUrl : undefined
+                                                joinMode === 'external' ? externalUrl : undefined,
+                                                agentMode
                                             );
                                             setShowAgentSelector(false);
                                             setExternalUrl('');
+                                            setIsArmed(false);
                                         }}
-                                        className="w-full p-4 flex items-center justify-between bg-white/5 hover:bg-white/10 border border-white/5 hover:border-[#00F2FF]/50 rounded-lg group transition-all"
+                                        disabled={!isArmed}
+                                        className={`w-full p-4 flex items-center justify-between border rounded-lg group transition-all ${isArmed ? 'bg-white/5 hover:bg-white/10 border-white/5 hover:border-[#00F2FF]/50 cursor-pointer' : 'bg-white/2 border-white/5 opacity-50 cursor-not-allowed'}`}
                                     >
                                         <div className="text-left">
                                             <div className="text-white font-medium group-hover:text-[#00F2FF]">{agent.name}</div>
