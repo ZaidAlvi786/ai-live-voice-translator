@@ -48,9 +48,9 @@ class RAGService:
             print(f"Embedding generation failed: {e}")
             raise e
 
-    async def ingest_document(self, agent_id: str, user_id: str, filename: str, content: Any):
+    async def ingest_document(self, agent_id: str, user_id: str, filename: str, content: Any, source_type: str = "general", allowed_modes: List[str] = None):
         """
-        Chunk text, embed, and store in DB. 
+        Chunk text, embed, and store in DB with strict scoping.
         Active content can be str (text) or bytes (file).
         """
         supabase = get_supabase_client()
@@ -102,7 +102,9 @@ class RAGService:
                 "filename": filename,
                 "content": chunk,
                 "embedding": embedding,
-                "metadata": {"chunk_index": i}
+                "metadata": {"chunk_index": i},
+                "source_type": source_type,
+                "allowed_modes": allowed_modes or []
             }
             
             try:
@@ -218,5 +220,42 @@ class RAGService:
         except Exception as e:
             print(f"Vector search failed: {e}")
             return ""
+
+    async def search(self, query: str, agent_id: str, filters: Dict[str, Any] = None, threshold: float = 0.75) -> List[Any]:
+        """
+        Advanced strict search for AgentRuntime.
+        """
+        embedding = self._get_embedding(query)
+        supabase = get_supabase_client()
+        
+        filter_modes = filters.get("modes") if filters else None
+        
+        params = {
+            "query_embedding": embedding,
+            "match_threshold": threshold,
+            "match_count": 5,
+            "filter_agent_id": agent_id,
+            "filter_modes": filter_modes
+        }
+        
+        try:
+             # Need a generic object to hold results, or simple dict
+             class DocResult:
+                 def __init__(self, id, content, score):
+                     self.id = id
+                     self.content = content
+                     self.score = score
+
+             response = supabase.rpc("match_documents", params).execute()
+             
+             results = []
+             if response.data:
+                 for item in response.data:
+                     results.append(DocResult(item["id"], item["content"], item["similarity"]))
+             
+             return results
+        except Exception as e:
+            print(f"Strict search failed: {e}")
+            return []
 
 # We need the SQL for match_documents RPC. I will add it to the schema file.
