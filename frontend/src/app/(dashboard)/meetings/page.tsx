@@ -1,25 +1,17 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
-import { Canvas } from '@react-three/fiber';
-import { Environment, Stars } from '@react-three/drei';
+import { useEffect, useState } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { useMeetingStore } from '@/stores/useMeetingStore';
 import { useAgentStore } from '@/stores/useAgentStore';
-import * as THREE from 'three';
+import { useSpatialStore } from '@/stores/useSpatialStore';
 import { useAudioStream } from '@/hooks/useAudioStream';
 
 // Components
-import { ContextOrb } from '@/components/3d/ContextOrb';
-import { CameraRig } from '@/components/3d/CameraRig';
-// import { MeetingSlab } from './MeetingSlab'; // I'll inline this or create it if complex
-// import { MeetingModal } from './MeetingModal'; // Inline or refactor
+// Components
+// SpatialModal is defined inline below (refactor later if needed)
 
-// --- INLINE COMPONENTS FOR SPEEDY REFACTOR ---
-
-import { Float, Text, useCursor } from '@react-three/drei';
-import { motion as motion3d } from 'framer-motion-3d';
 import { motion } from 'framer-motion';
 import { Activity, Cpu, Clock, Zap, Link as LinkIcon, Globe, CheckCircle } from 'lucide-react';
 
@@ -171,53 +163,6 @@ const SpatialModal = ({ meeting, activeTranscript, onClose, onEnd }: any) => {
     );
 }
 
-// Inline MeetingSlab (Enhanced)
-const EnhancedMeetingSlab = ({ meeting, position, onClick }: any) => {
-    const [hovered, setHovered] = useState(false);
-    useCursor(hovered);
-
-    return (
-        <group position={position}>
-            {/* Connection Line to Arc baseline? Maybe too clutter. Keep simple. */}
-
-            <motion3d.group
-                onClick={onClick}
-                onPointerOver={() => setHovered(true)}
-                onPointerOut={() => setHovered(false)}
-                animate={{
-                    scale: hovered ? 1.1 : 1,
-                    z: hovered ? 1 : 0
-                }}
-            >
-                <Float speed={2} rotationIntensity={0.1} floatIntensity={0.2}>
-                    <mesh rotation={[0, 0, 0]}>
-                        <boxGeometry args={[2.5, 3.5, 0.1]} />
-                        <meshPhysicalMaterial
-                            color={meeting.status === 'live' ? "#1a0505" : "#05101a"}
-                            emissive={meeting.status === 'live' ? "#ff0000" : "#00F2FF"}
-                            emissiveIntensity={hovered ? 0.4 : 0.1}
-                            transmission={0.6}
-                            thickness={1}
-                            roughness={0.2}
-                            metalness={0.8}
-                            clearcoat={1}
-                        />
-                    </mesh>
-
-                    {/* Holographic Text */}
-                    <group position={[-1, 1.4, 0.1]}>
-                        <Text fontSize={0.15} color="white" anchorX="left" maxWidth={2}>
-                            {meeting.title || "SESSION"}
-                        </Text>
-                        <Text position={[0, -0.25, 0]} fontSize={0.1} color={meeting.status === 'live' ? 'red' : 'cyan'} anchorX="left">
-                            {meeting.status.toUpperCase()}
-                        </Text>
-                    </group>
-                </Float>
-            </motion3d.group>
-        </group>
-    )
-}
 
 // --- PAGE ---
 
@@ -248,6 +193,13 @@ export default function MeetingsPage() {
     const [joinMode, setJoinMode] = useState<'internal' | 'external'>('internal');
     const [externalUrl, setExternalUrl] = useState('');
 
+    const setMode = useSpatialStore(state => state.setMode);
+
+    useEffect(() => {
+        setMode('MEETINGS');
+        return () => setMode('DASHBOARD');
+    }, [setMode]);
+
     useEffect(() => {
         fetchMeetings();
         fetchAgents();
@@ -263,70 +215,8 @@ export default function MeetingsPage() {
         }
     }, [activeMeetingId]);
 
-    // Calculate Slab Positions on a Temporal Arc (Parabola or Spiral)
-    const slabPositions = useMemo(() => {
-        return meetings.map((m, i) => {
-            // Formula for Arc:
-            // x spread out
-            // z curves back
-            const offset = i - (meetings.length / 2);
-            const x = offset * 3;
-            const z = Math.abs(offset) * 1.5; // Parabola
-            return new THREE.Vector3(x, 0, -z);
-        });
-    }, [meetings]);
-
-    // Active Meeting Position for Camera Focus
-    const activeMeetingIndex = meetings.findIndex(m => m.id === activeMeetingId);
-    const targetFocus = activeMeetingIndex !== -1 ? slabPositions[activeMeetingIndex] : undefined;
-
     return (
-        <div className="relative w-full h-full bg-[#020408] overflow-hidden">
-
-            {/* 3D Viewport */}
-            <div className="absolute inset-0">
-                <Canvas shadows camera={{ position: [0, 2, 10], fov: 45 }} frameloop="always"> {/* Always for orb shader, could opt demand if needed */}
-                    <color attach="background" args={['#020408']} />
-                    <fog attach="fog" args={['#020408', 5, 25]} />
-
-                    <ambientLight intensity={0.2} />
-                    <pointLight position={[10, 10, 10]} intensity={1} color="#00F2FF" />
-                    <pointLight position={[-10, 5, -10]} intensity={2} color="#ff0080" />
-
-                    <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
-
-                    {/* Camera Controller */}
-                    <CameraRig viewMode={viewMode} targetPosition={targetFocus} />
-
-                    {/* Scene Content */}
-                    <group position={[0, 0, 0]}>
-
-                        {/* Central Neural Orb (Visual Anchor) */}
-                        <group position={[0, 2, -5]}>
-                            <ContextOrb mode={
-                                activeMeetingId ? 'analysis' :
-                                    (meetings.some(m => m.status === 'live') ? 'live' : 'idle')
-                            } />
-                        </group>
-
-                        {/* Meetings Temporal Arc */}
-                        <group position={[0, -1, 0]}>
-                            {meetings.map((meeting, i) => (
-                                <EnhancedMeetingSlab
-                                    key={meeting.id}
-                                    meeting={meeting}
-                                    position={slabPositions[i]}
-                                    onClick={() => setActiveMeeting(meeting.id)}
-                                />
-                            ))}
-                        </group>
-
-                        {/* Floor Reflection or Grid? Keep minimal. */}
-                        <gridHelper args={[50, 50, '#111', '#050505']} position={[0, -3, 0]} />
-                    </group>
-                </Canvas>
-            </div>
-
+        <div className="relative w-full h-full overflow-hidden">
             {/* UI Layer (HUD) */}
             <div className="absolute top-0 left-0 p-8 pointer-events-none">
                 <h1 className="text-4xl font-black text-white tracking-tighter opacity-20">NEURALIS</h1>
@@ -440,7 +330,7 @@ export default function MeetingsPage() {
                 <motion.button
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
-                    className="absolute bottom-8 right-8 z-40 bg-[#00F2FF] text-black w-14 h-14 rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(0,242,255,0.4)] hover:scale-110 transition-transform"
+                    className="absolute bottom-8 right-8 z-40 bg-[#00F2FF] text-black w-14 h-14 rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(0,242,255,0.4)] hover:scale-110 transition-transform pointer-events-auto"
                     onClick={() => setShowAgentSelector(true)}
                 >
                     <Zap size={24} />
