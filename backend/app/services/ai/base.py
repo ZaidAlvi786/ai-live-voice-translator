@@ -35,8 +35,21 @@ class LLMService(ABC):
         pass
         
     @abstractmethod
+    async def generate(self, system_prompt: str, user_prompt: str, max_tokens: int) -> str:
+        """
+        Raw generation with strict prompt control.
+        """
+        pass
+
+    @abstractmethod
     async def plan_response(self, context: str, history: list) -> Dict[str, Any]:
         """
         Generates a structured plan (intent, tone, pacing) before speaking.
         """
         pass
+
+class AIService(ABC):
+    """
+    Base class for generic AI services.
+    """
+    pass
