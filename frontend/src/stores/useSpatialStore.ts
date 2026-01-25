@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type SceneMode = 'ENTRY' | 'AUTH' | 'SYNTHESIS' | 'DASHBOARD' | 'MISSION';
+export type SceneMode = 'ENTRY' | 'AUTH' | 'SYNTHESIS' | 'DASHBOARD' | 'MISSION' | 'MEETINGS';
 
 interface SpatialState {
     mode: SceneMode;
