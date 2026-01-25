@@ -1,76 +1,145 @@
 import asyncio
+import json
 from typing import AsyncGenerator
 from .stt_service import DeepgramSTTService
 from .tts_service import ElevenLabsTTSService
-from .llm_service import OpenAILLMService
-from .rag_service import RAGService
+from .agent_runtime import AgentRuntime, AgentIdentity
+from .memory_service import MemoryService
+from .speech_governor import SpeechGovernor
+from .latency_tracker import LatencyTracker
 from app.db.supabase import get_supabase_client
+import logging
+
+logger = logging.getLogger(__name__)
 
 class AIOrchestrator:
-    def __init__(self, meeting_id: str, agent_id: str, voice_id: str):
+    def __init__(self, meeting_id: str, agent_id: str, voice_id: str, mode: str = "interview"):
         self.meeting_id = meeting_id
         self.agent_id = agent_id
-        self.voice_id = voice_id or "21m00Tcm4TlvDq8ikWAM" # Default voice
+        self.voice_id = voice_id or "21m00Tcm4TlvDq8ikWAM"
         
         # Services
         self.stt = DeepgramSTTService()
         self.tts = ElevenLabsTTSService()
-        self.llm = OpenAILLMService()
         self.memory = MemoryService(agent_id, meeting_id)
-        self.rag = RAGService()
+        
+        # Initialize Runtime (async init pattern would be better, but doing sync setup here for now)
+        # We need to fetch identity first. 
+        self.runtime = None 
+        self.pending_mode = mode
         
         # State
         self.is_speaking = False
-        self.interrupt_event = asyncio.Event()
-        self.processing_task = None
+        # self.interrupt_event = asyncio.Event() # Handled by Governor now
+        
+        self.governor = SpeechGovernor()
+        self.latency_tracker = LatencyTracker(meeting_id)
         
         # Queues
         self.audio_input_queue = asyncio.Queue()
         self.audio_output_queue = asyncio.Queue()
 
-    # ... (ingest_audio, audio_generator, run_pipeline match existing code) ...
+    async def initialize(self):
+        """
+        Async setup: Load Agent Identity and Config from DB.
+        """
+        supabase = get_supabase_client()
+        
+        # Fetch Agent Profile
+        agent_resp = supabase.table("agents").select("*").eq("id", self.agent_id).single().execute()
+        if not agent_resp.data:
+            raise ValueError(f"Agent {self.agent_id} not found")
+        
+        agent_data = agent_resp.data
+        
+        identity = AgentIdentity(
+            name=agent_data.get("name"),
+            role=agent_data.get("role", "Assistant"),
+            years_experience=agent_data.get("years_experience", 0),
+            communication_style=agent_data.get("communication_style", "formal"),
+            guardrails=agent_data.get("guardrails", {})
+        )
+        
+        self.runtime = AgentRuntime(self.agent_id, identity, self.pending_mode)
+        print(f"Agent Runtime initialized in {self.pending_mode} mode for {identity.name}")
 
     async def ingest_audio(self, audio_data: bytes):
-        """
-        Entry point for raw audio chunks from WebSocket.
-        """
         await self.audio_input_queue.put(audio_data)
 
     async def audio_generator(self) -> AsyncGenerator[bytes, None]:
-        """
-        Yields audio chunks from the input queue for STT.
-        """
         while True:
             chunk = await self.audio_input_queue.get()
             yield chunk
 
     async def run_pipeline(self):
         """Main Orchestration Loop."""
+        if not self.runtime:
+            await self.initialize()
+            
         print(f"Starting Orchestrator for {self.meeting_id}")
+
+        # Initial Probe & Audible Disclosure
+        # "I am an AI Assistant joining this meeting."
+        try:
+            # 1. DB Log
+            get_supabase_client().table('meeting_transcripts').insert({
+                "meeting_id": self.meeting_id,
+                "speaker": "system",
+                "content": f"Agent {self.runtime.identity.name} joined in {self.runtime.mode} mode.",
+                "confidence": 1.0
+            }).execute()
+            
+            # 2. Audible Announcement (Compliance)
+            disclosure_text = f"Hello. I am {self.runtime.identity.name}, an AI assistant. I am recording this session for {self.runtime.mode} purposes."
+            
+            get_supabase_client().table('meeting_transcripts').insert({
+                "meeting_id": self.meeting_id,
+                "speaker": "agent",
+                "content": disclosure_text,
+                "confidence": 1.0
+            }).execute()
+
+            self.is_speaking = True
+            async def announcement_yielder():
+                yield disclosure_text
+            
+            tts_stream = self.tts.speak_stream(announcement_yielder(), self.voice_id)
+            async for audio_chunk in tts_stream:
+                 await self.audio_output_queue.put(audio_chunk)
+            self.is_speaking = False
+            
+        except Exception as e: 
+            print(f"Initialization/Disclosure failed: {e}")
+            pass
         
-        # 1. Start STT Stream
+        # Start STT Stream
         stt_stream = self.stt.transcribe_stream(self.audio_generator())
         
         async for transcript in stt_stream:
-            print(f"Transcript: {transcript}")
+            # 0. Latency Tracking Start
+            self.latency_tracker.start_turn()
             
-            # Check for Interrupt if we are speaking
-            if self.is_speaking:
-                if len(transcript) > 5: 
-                    print("INTERRUPT TRIGGERED")
-                    self.interrupt_event.set()
-                    self.is_speaking = False
-            
-            if len(transcript) > 2: # Ignore noise
+            # 1. VAD & Interruption Check
+            # If agent is speaking and user speaks, we interrupt.
+            if self.is_speaking and self.governor.should_interrupt(transcript):
+                 await self.governor.interrupt()
+                 self.is_speaking = False
+                 # Clear output queue (best effort)
+                 while not self.audio_output_queue.empty():
+                    try: self.audio_output_queue.get_nowait()
+                    except: pass
+                 continue
+
+            if len(transcript) > 5: # Ignore short noise
+                # Fire and forget processing to avoid blocking audio loop? 
+                # For now, await it to keep conversation turn-based linear.
                 await self.process_turn(transcript)
 
     async def process_turn(self, user_text: str):
-        self.interrupt_event.clear()
+        self.governor.clear_interruption()
+        self.latency_tracker.mark("stt_complete")
         
-        # 1. Update Memory
-        await self.memory.add_interaction("user", user_text)
-
-        # DB: Persist User Transcript
+        # 1. Update Memory & Transcript
         try:
             get_supabase_client().table('meeting_transcripts').insert({
                 "meeting_id": self.meeting_id,
@@ -79,87 +148,81 @@ class AIOrchestrator:
                 "confidence": 1.0
             }).execute()
         except Exception as e:
-            print(f"Failed to persist user transcript: {e}")
+            print(f"Failed to save user transcript: {e}")
+
+        # 2. RUNTIME EXECUTION (The Brain)
+        response_data = await self.runtime.generate_response(user_text, self.meeting_id)
+        self.latency_tracker.mark("qbd_complete") # QBD is inside runtime
+        self.latency_tracker.mark("llm_start") # LLM is inside runtime
         
-        # 2. RAG Retrieval
-        rag_context = ""
+        response_text = response_data["text"]
+        confidence = response_data["confidence"]
+        loop_used = response_data.get("loop_used", "DEEP")
+        
+        # --- CONVERSATION PACER ---
+        # Artificial delay to feel natural
+        # Governor decides pacing based on mode
+        pause_duration = self.governor.calculate_pause(self.runtime.mode)
+        # Fast loop override
+        if loop_used == "FAST":
+             pause_duration = 0.1
+             
+        if pause_duration > 0:
+            await asyncio.sleep(pause_duration)
+        
+        # Check interrupt again before speaking
+        if self.governor.interrupt_event.is_set():
+            return
+
+        # 3. Audit Log
         try:
-            rag_context = await self.rag.query_knowledge(self.agent_id, user_text)
-            if rag_context:
-                print(f"RAG Context found: {rag_context[:100]}...")
+            get_supabase_client().table('agent_audit_logs').insert({
+                "meeting_id": self.meeting_id,
+                "agent_id": self.agent_id,
+                "question": user_text,
+                "answer": response_text,
+                "retrieved_sources": json.dumps(response_data["retrieved_sources"]),
+                "confidence_score": confidence,
+                "decision_path": response_data["decision_path"] + f" ({loop_used})"
+            }).execute()
         except Exception as e:
-            print(f"RAG Error: {e}")
-        
-        # 3. Get Context & History
-        # We append RAG context to the user's input for the LLM or separate system message
-        context = await self.memory.get_context(user_text)
-        
-        if rag_context:
-            context["knowledge"] = rag_context
+            print(f"Audit log failed: {e}")
+
+        # 4. Speak (if not silent)
+        if response_text and response_text.strip():
+            self.is_speaking = True
             
-        history = self.memory.get_history_for_llm()
-        
-        # 4. Plan Response
-        # (Mocking cost calculation for now)
-        current_cost = 0.01 
-        
-        plan = await self.llm.plan_response(context, history)
-        print(f"Plan: {plan}")
-        
-        if plan.get("intent") == "listen":
-            return # Don't speak
+            # Save Agent Transcript
+            get_supabase_client().table('meeting_transcripts').insert({
+                "meeting_id": self.meeting_id,
+                "speaker": "agent",
+                "content": response_text,
+                "confidence": confidence
+            }).execute()
+
+            # Stream TTS
+            # We wrap the single text response into an iterator for the TTS service
+            async def single_text_yielder():
+                yield response_text
+
+            tts_stream = self.tts.speak_stream(single_text_yielder(), self.voice_id)
             
-        # 5. Generate & Speak
-        self.is_speaking = True
-        
-        # Start Generation Stream
-        llm_stream = self.llm.generate_response(context, history, mode="INTERVIEW")
-        
-        async def text_iterator_wrapper():
-            full_response = ""
-            async for token in llm_stream:
-                if self.interrupt_event.is_set():
-                    print("Generation Interrupted")
+            # CLEAR QUEUE ON NEW TURN
+            
+            first_chunk = True
+            async for audio_chunk in tts_stream:
+                if first_chunk:
+                    self.latency_tracker.mark("tts_first_byte")
+                    # Report Latency
+                    logger.info(f"Latency Report: {self.latency_tracker.get_report()}")
+                    first_chunk = False
+
+                if self.governor.interrupt_event.is_set():
+                    # Clear any buffered output
+                    while not self.audio_output_queue.empty():
+                        try: self.audio_output_queue.get_nowait()
+                        except: pass
                     break
-                full_response += token
-                yield token
+                await self.audio_output_queue.put(audio_chunk)
             
-            if full_response:
-                await self.memory.add_interaction("agent", full_response)
-                
-                # DB: Persist Agent Transcript
-                try:
-                    get_supabase_client().table('meeting_transcripts').insert({
-                        "meeting_id": self.meeting_id,
-                        "speaker": "agent",
-                        "content": full_response,
-                        "confidence": 1.0
-                    }).execute()
-                    
-                    # DB: Update Cost
-                    # Note: Ideally we'd upsert based on meeting_id, but for now let's just log it.
-                    # Or simple blind update if we assume row creation at start.
-                    # get_supabase_client().table('meeting_costs').update({"total_cost": current_cost}).eq("meeting_id", self.meeting_id).execute()
-                except Exception as e:
-                    print(f"Failed to persist agent transcript: {e}")
-        
-        tts_stream = self.tts.speak_stream(text_iterator_wrapper(), self.voice_id)
-        
-        async for audio_chunk in tts_stream:
-            if self.interrupt_event.is_set():
-                print("TTS Interrupted")
-                break
-            # Use queue for output
-            await self.audio_output_queue.put(audio_chunk)
-            
-        self.is_speaking = False
-        """
-        Since process_turn yields audio, we need a way to consume it.
-        The current architecture implies `process_turn` is triggered by `ingest_audio` loop.
-        But `process_turn` is async. We need to decouple the output stream.
-        
-        Refactoring: `process_turn` puts chunks into `self.text_output_queue` or `self.audio_output_queue`.
-        """
-        # Note: This is a simplified scaffold. A robust production implementation uses
-        # dedicated producer-consumer tasks for optimal concurrency.
-        pass
+            self.is_speaking = False

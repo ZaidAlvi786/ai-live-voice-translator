@@ -14,7 +14,7 @@ interface MeetingStoreState {
 
     // Actions
     fetchMeetings: () => Promise<void>;
-    startMeeting: (agentId: string, platform?: string, externalUrl?: string) => Promise<void>;
+    startMeeting: (agentId: string, platform?: string, externalUrl?: string, mode?: string) => Promise<void>;
     endMeeting: (meetingId: string) => Promise<void>;
     setActiveMeeting: (id: string | null) => void;
     setViewMode: (mode: ViewMode) => void;
@@ -48,13 +48,14 @@ export const useMeetingStore = create<MeetingStoreState>((set, get) => ({
         }
     },
 
-    startMeeting: async (agentId, platform = 'webrtc', externalUrl) => {
+    startMeeting: async (agentId, platform = 'webrtc', externalUrl, mode = 'interview') => {
         set({ isLoading: true });
         try {
             const body = {
                 agent_id: agentId,
                 platform,
-                external_url: externalUrl
+                external_url: externalUrl,
+                mode
             };
             const data = await apiRequest<Meeting>('/meetings/', 'POST', body);
 

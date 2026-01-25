@@ -133,14 +133,25 @@ async def create_meeting(meeting: MeetingCreate, background_tasks: BackgroundTas
         except Exception as cost_err:
             print(f"Warning: Failed to init meeting costs: {cost_err}")
 
-        # --- TRIGGER MOCK SIMULATION (If External) ---
+        # --- TRIGGER HEADLESS BOT (If External) ---
         if new_meeting["platform"] != 'webrtc':
-            from app.services.meeting.mock_simulation import MockMeetingSimulation
+            # Use the real Headless Bot
+            from app.services.meeting.headless.google_meet import GoogleMeetAdapter
+            
+            async def run_headless_bot(meeting_id, url, agent_name):
+                try:
+                    adapter = GoogleMeetAdapter(meeting_id, url, agent_name)
+                    await adapter.connect()
+                    # Keep connection alive? Adapter connects and returns. 
+                    # The WS bridge keeps the session active.
+                except Exception as e:
+                    print(f"Headless Bot Error: {e}")
+
             background_tasks.add_task(
-                MockMeetingSimulation.start, 
+                run_headless_bot, 
                 new_meeting["id"], 
-                agent_name, 
-                new_meeting["platform"]
+                new_meeting["external_url"],
+                agent_name
             )
         # ---------------------------------------------
 
