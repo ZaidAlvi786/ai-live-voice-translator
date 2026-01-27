@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import os
 from playwright.async_api import Page
 from .browser import browser_service
 
@@ -25,7 +26,7 @@ class GoogleMeetAdapter:
             
         logger.info(f"Connecting to Meet: {self.meeting_url}")
         
-        # 1. Get Context with Virtual Mic Shim
+        # 1. Launch & Context
         # We need to inject the shim BEFORE navigation so getUserMedia is intercepted.
         context = await browser_service.new_context()
         
@@ -88,38 +89,59 @@ class GoogleMeetAdapter:
 
         # 2. Navigate
         try:
-           await self.page.goto(self.meeting_url, timeout=60000)
+           # Use domcontentloaded as Meet is a heavy SPA
+           await self.page.goto(self.meeting_url, wait_until="domcontentloaded", timeout=45000)
+           logger.info(f"Navigated to {self.meeting_url}")
+           
+           # Check for known "Blocked" states immediately
+           try:
+                content = await self.page.content()
+                if "You can't join this video call" in content or "Return to home screen" in content:
+                    logger.error("CRITICAL: Google Meet blocked this anonymous joining session. The meeting settings likely assume a logged-in user or this IP is temporarily flagged. TRY A NEW MEETING LINK.")
+                    return # Stop here, don't timeout on input name
+           except: pass
+
         except Exception as e:
-           logger.error(f"Navigation failed: {e}")
-           return
+           logger.warning(f"Navigation timeout/error (continuing anyway): {e}")
+           # Do NOT return; often the page is usable even if 'load' or 'networkidle' wasn't reached.
 
         # 3. Handle "Got it"
         try:
-             await self.page.click("span:text('Got it')", timeout=2000)
+             await self.page.click("span:text('Got it'), span:text('Dismiss')", timeout=2000)
         except: 
              pass
 
         # 4. Input Name
         try:
-             # Try multiple selectors for name input
+             # Try multiple selectors for name input, BUT FORCE VISIBILITY
+             # The error 'locator resolved to hidden' implies we picked up a hidden field (maybe for mobile layout).
              name_input = await self.page.wait_for_selector(
-                 "input[placeholder='Your name'], input[aria-label='Your name'], input[type='text']", 
-                 timeout=5000
+                 "input[placeholder='Your name']:visible, input[aria-label='Your name']:visible, input[type='text']:visible", 
+                 timeout=15000,
+                 state="visible"
              )
              if name_input:
                  await name_input.fill(self.agent_name)
                  await self.page.keyboard.press("Enter")
                  logger.info(f"Entered name: {self.agent_name}")
-                 await asyncio.sleep(1) # Wait for UI to update
-        except:
-             logger.info("No name input found (might be logged in).")
+                 await asyncio.sleep(2) # Wait for UI to update (Join button enablement)
+        except Exception as e:
+             # DEBUG: Dump the page text to see what's actually there
+             try:
+                 body_text = await self.page.evaluate("document.body.innerText")
+                 logger.warning(f"Visible Page Text Dump: {body_text[:500]}...") # Log first 500 chars
+             except:
+                 pass
+             logger.warning(f"No visible name input found: {e}")
 
         # 5. Join
         try:
              # Wait longer for the button to appear/enable
+             # Use :visible psuedo-class to ensure we don't pick up hidden buttons
              join_btn = await self.page.wait_for_selector(
-                 "button:has-text('Ask to join'), button:has-text('Join now'), span:has-text('Ask to join'), span:has-text('Join now')", 
-                 timeout=30000
+                 "button:has-text('Ask to join'):visible, button:has-text('Join now'):visible, span:has-text('Ask to join'):visible, span:has-text('Join now'):visible", 
+                 timeout=30000,
+                 state="visible"
              )
              if join_btn:
                  await join_btn.click()
@@ -140,6 +162,56 @@ class GoogleMeetAdapter:
 
         # 7. Inject Audio Bridge (Capture & Playback)
         await self._inject_audio_bridge()
+
+    async def _ensure_login(self):
+        """
+        Checks if we have Google Creds + Not Logged In -> Performs Login.
+        """
+        email = os.environ.get("GOOGLE_EMAIL")
+        password = os.environ.get("GOOGLE_PASSWORD")
+        
+        if not email or not password:
+            logger.info("No Google Credentials found in env. Skipping Login check.")
+            return
+
+        logger.info("Checking Google Login Status...")
+        try:
+            # check if already logged in by going to account page
+            await self.page.goto("https://accounts.google.com/ServiceLogin", wait_until="domcontentloaded")
+            await asyncio.sleep(2)
+            
+            if "myaccount.google.com" in self.page.url:
+                logger.info("Already Logged In! (Persistent Session Active)")
+                return
+            
+            # If we see Email Input
+            email_input = await self.page.wait_for_selector("input[type='email']", timeout=5000)
+            if email_input:
+                logger.info("Not logged in. Starting Auto-Login...")
+                await email_input.fill(email)
+                await self.page.keyboard.press("Enter")
+                
+                # Wait for Password Input
+                password_input = await self.page.wait_for_selector("input[type='password']", timeout=10000)
+                if password_input:
+                    # Small delay for animation
+                    await asyncio.sleep(1)
+                    await password_input.fill(password)
+                    await self.page.keyboard.press("Enter")
+                    
+                    logger.info("Credentials submitted. Waiting for redirection...")
+                    # Wait for either 2FA or Home
+                    try:
+                        await self.page.wait_for_url("**/myaccount.google.com/**", timeout=15000)
+                        logger.info("Login Successful!")
+                    except:
+                        logger.warning("Login submitted but not redirected to MyAccount (Possible 2FA or simple landing page). Requesting check...")
+                        
+            else:
+                 logger.info("No email input found, assuming potentially logged in.")
+                 
+        except Exception as e:
+            logger.error(f"Auto-Login Failed (Continuing as Anonymous): {e}")
 
     async def _inject_audio_bridge(self):
         """
