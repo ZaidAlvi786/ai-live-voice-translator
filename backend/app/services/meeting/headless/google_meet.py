@@ -19,6 +19,10 @@ class GoogleMeetAdapter:
         """
         Full connection flow: Launch -> Inject Virtual Mic -> Navigate -> Join -> Connect Audio.
         """
+        # Ensure URL has protocol
+        if not self.meeting_url.startswith("http"):
+            self.meeting_url = f"https://{self.meeting_url}"
+            
         logger.info(f"Connecting to Meet: {self.meeting_url}")
         
         # 1. Get Context with Virtual Mic Shim
@@ -97,22 +101,33 @@ class GoogleMeetAdapter:
 
         # 4. Input Name
         try:
-             name_input = await self.page.wait_for_selector("input[type='text']", timeout=10000)
+             # Try multiple selectors for name input
+             name_input = await self.page.wait_for_selector(
+                 "input[placeholder='Your name'], input[aria-label='Your name'], input[type='text']", 
+                 timeout=5000
+             )
              if name_input:
                  await name_input.fill(self.agent_name)
                  await self.page.keyboard.press("Enter")
+                 logger.info(f"Entered name: {self.agent_name}")
+                 await asyncio.sleep(1) # Wait for UI to update
         except:
-             logger.info("No name input found.")
+             logger.info("No name input found (might be logged in).")
 
         # 5. Join
         try:
+             # Wait longer for the button to appear/enable
              join_btn = await self.page.wait_for_selector(
-                 "button:has-text('Ask to join'), button:has-text('Join now')", 
-                 timeout=10000
+                 "button:has-text('Ask to join'), button:has-text('Join now'), span:has-text('Ask to join'), span:has-text('Join now')", 
+                 timeout=30000
              )
              if join_btn:
                  await join_btn.click()
                  logger.info("Clicked Join.")
+        except Exception as e:
+             logger.error(f"Join button not found: {e}")
+             # Try screenshot for debugging (saved to local disk)
+             await self.page.screenshot(path="debug_join_fail.png")
         except Exception as e:
              logger.error(f"Join button not found: {e}")
 
@@ -140,7 +155,10 @@ class GoogleMeetAdapter:
             const ws = new WebSocket("{ws_url}");
             ws.binaryType = 'arraybuffer';
             
-            ws.onopen = () => console.log("Bridge WS Connected");
+            ws.onopen = () => {{
+                console.log("Bridge WS Connected");
+                captureAudio();
+            }};
             ws.onerror = (e) => console.error("Bridge WS Error", e);
             
             // 1. INCOMING AUDIO (Mouth)
