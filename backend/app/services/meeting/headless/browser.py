@@ -29,7 +29,8 @@ class HeadlessBrowserService:
                     "--use-fake-device-for-media-stream", # Feeds fake audio/video
                     "--disable-blink-features=AutomationControlled", # Anti-bot detection
                     "--no-sandbox",
-                    "--disable-setuid-sandbox"
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage" # Prevents crash in Docker/Low Memory envs
                 ]
             )
             logger.info("Headless Browser Launched.")
