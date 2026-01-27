@@ -73,13 +73,18 @@ export const useSynthesisStore = create<SynthesisState>((set, get) => ({
 
         const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
-        await fetch(`${API_URL}/training/upload?agent_id=${agentId}&type=voice`, {
+        const res = await fetch(`${API_URL}/training/${agentId}/enroll_voice`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${token}`
             },
             body: formData
         });
+
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || 'Voice upload failed');
+        }
     },
 
     reset: () => set({
