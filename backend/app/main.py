@@ -38,7 +38,7 @@ app.include_router(meetings.router, prefix="/api/v1/meetings", tags=["meetings"]
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
 app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["notifications"])
-app.include_router(ws.router, tags=["websockets"])
+app.include_router(ws.router, prefix="/api/v1", tags=["websockets"])
 
 @app.get("/")
 async def root():
