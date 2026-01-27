@@ -92,6 +92,15 @@ async def create_agent(agent: AgentCreate, user: dict = Depends(get_current_user
         
         if not response.data:
             raise HTTPException(status_code=500, detail="Failed to create agent record")
+        
+        # Notify
+        from app.services.notification_service import NotificationService
+        NotificationService().create(
+            user_id=user["id"],
+            title="Agent Created",
+            message=f"Agent '{agent.name}' has been successfully synthesized.",
+            type="success"
+        )
             
         return response.data[0]
         
@@ -221,7 +230,7 @@ async def upload_knowledge(
     # 3. Ingest via RAG Service
     # We pass the bytes directly to let RAG service handle text/pdf extraction
     rag = RAGService()
-    await rag.ingest_document(agent_id, user["id"], file.filename, content)
+    await rag.ingest_document(agent_id, user["id"], file.filename, content, token=user.get("token"))
     
     return {"message": "Document ingested successfully", "filename": file.filename}
 
