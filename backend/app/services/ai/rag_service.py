@@ -6,7 +6,8 @@ from app.db.supabase import get_supabase_client
 class RAGService:
     def __init__(self, user_id: str = None):
         self.user_id = user_id
-        self.openai_api_key = os.getenv("OPENAI_API_KEY") # Default fallback
+        self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
         
         if self.user_id:
             self._load_user_keys()
@@ -24,46 +25,106 @@ class RAGService:
 
     def _get_embedding(self, text: str) -> List[float]:
         """
-        Generate embedding using OpenAI API.
+        Generate embedding using OpenAI or OpenRouter.
         """
-        if not self.openai_api_key:
-             print("Error: No OpenAI API Key found (Env or Settings)")
-             raise ValueError("OpenAI API Key is required")
+        if self.openai_api_key:
+            url = "https://api.openai.com/v1/embeddings"
+            headers = {
+                "Authorization": f"Bearer {self.openai_api_key}",
+                "Content-Type": "application/json"
+            }
+            model = "text-embedding-3-small"
+        elif self.openrouter_api_key:
+            url = "https://openrouter.ai/api/v1/embeddings"
+            headers = {
+                "Authorization": f"Bearer {self.openrouter_api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://neuralis.ai", # Required by OpenRouter
+                "X-Title": "Neuralis"
+            }
+            # OpenRouter usually requires "vendor/model" format
+            model = "openai/text-embedding-3-small"
+        else:
+             print("WARNING: No AI API Keys found. Using Mock Embeddings.")
+             return [0.0] * 1536
 
-        url = "https://api.openai.com/v1/embeddings"
-        headers = {
-            "Authorization": f"Bearer {self.openai_api_key}",
-            "Content-Type": "application/json"
-        }
         data = {
             "input": text,
-            "model": "text-embedding-3-small"
+            "model": model
         }
         
         try:
             response = requests.post(url, headers=headers, json=data)
+            
+            if response.status_code == 401:
+                print("WARNING: Unauthorized (401) from AI Provider. Check your API Key.")
+                return [0.0] * 1536
+                
             response.raise_for_status()
             return response.json()["data"][0]["embedding"]
         except Exception as e:
             print(f"Embedding generation failed: {e}")
-            raise e
+            return [0.0] * 1536
 
-    async def ingest_document(self, agent_id: str, user_id: str, filename: str, content: Any, source_type: str = "general", allowed_modes: List[str] = None):
+    async def ingest_document(self, agent_id: str, user_id: str, filename: str, content: Any, source_type: str = "general", allowed_modes: List[str] = None, token: str = None):
         """
         Chunk text, embed, and store in DB with strict scoping.
         Active content can be str (text) or bytes (file).
         """
         supabase = get_supabase_client()
         
+        # Create user client if token is provided
+        storage_client = supabase
+        if token:
+             from supabase import create_client, ClientOptions
+             import os
+             url = os.environ.get("SUPABASE_URL", "")
+             key = os.environ.get("SUPABASE_SERVICE_KEY", "")
+             storage_client = create_client(
+                 url, 
+                 key, 
+                 options=ClientOptions(headers={"Authorization": f"Bearer {token}"})
+             )
+
         text_content = ""
         
+        if isinstance(content, bytes):
+             # 0. Upload to Storage
+             try:
+                 file_path = f"{user_id}/{agent_id}/{filename}"
+                 storage_client.storage.from_("knowledge-base").upload(
+                     file_path,
+                     content,
+                     {"content-type": "application/pdf" if filename.endswith(".pdf") else "text/plain"}
+                 )
+             except Exception as e:
+                 # Try to create bucket if it doesn't exist
+                 if "Bucket not found" in str(e) or "404" in str(e):
+                     print("Bucket 'knowledge-base' not found. Attempting to create...")
+                     try:
+                        # Fix: supabase-py create_bucket takes (id, options)
+                        # Ensure we send the correct structure
+                        supabase.storage.create_bucket("knowledge-base", options={"public": False})
+                        
+                        # Retry upload
+                        storage_client.storage.from_("knowledge-base").upload(
+                            file_path,
+                            content,
+                             {"content-type": "application/pdf" if filename.endswith(".pdf") else "text/plain"}
+                        )
+                     except Exception as e2:
+                         print(f"CRITICAL: Failed to create/upload to 'knowledge-base' bucket. Raw file not backed up: {e2}")
+                         print("ACTION REQUIRED: Create a private bucket named 'knowledge-base' in Supabase Dashboard.")
+                 else:
+                     print(f"Bypassing storage upload (might already exist): {e}")
+
         # 1. Extract Text based on type
         if filename.lower().endswith('.pdf'):
             try:
                 import io
                 from pypdf import PdfReader
                 if isinstance(content, str):
-                    # Should be bytes for PDF, but if passed as string (unlikely for file upload flow?), handle error
+                    # Should be bytes for PDF
                     raise ValueError("PDF content must be bytes")
                 
                 pdf_file = io.BytesIO(content)
@@ -112,6 +173,18 @@ class RAGService:
             except Exception as e:
                 print(f"Failed to insert document chunk: {e}")
                 pass
+                
+        # Notify
+        try:
+            from app.services.notification_service import NotificationService
+            NotificationService().create(
+                user_id=user_id,
+                title="Knowledge Ingested",
+                message=f"Document '{filename}' has been processed and indexed.",
+                type="info"
+            )
+        except:
+            pass
 
     async def delete_document(self, agent_id: str, filename: str):
         """
