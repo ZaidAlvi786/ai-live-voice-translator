@@ -15,6 +15,7 @@ import { ThemeProvider } from '@/providers/ThemeProvider';
 // ...
 
 import { GlobalLoader } from '@/components/ui/GlobalLoader';
+import { NotificationToast } from '@/components/dom/NotificationToast';
 
 // ...
 
@@ -28,6 +29,7 @@ export default function RootLayout({
             <body className={inter.className}>
                 <ThemeProvider>
                     <GlobalLoader />
+                    <NotificationToast />
                     {/* The 3D World Layer */}
                     <Scene />
 
