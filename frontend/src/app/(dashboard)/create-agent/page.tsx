@@ -356,13 +356,16 @@ export default function CreateAgentPage() {
                             )}
 
                             <div className="relative">
-                                <label className={`block h-32 border border-dashed rounded-xl flex flex-col items-center justify-center gap-3 transition-all cursor-pointer group ${selectedVoiceModelId
+                                <label 
+                                    htmlFor="voice-upload-input"
+                                    className={`block h-32 border border-dashed rounded-xl flex flex-col items-center justify-center gap-3 transition-all cursor-pointer group ${selectedVoiceModelId
                                     ? 'border-white/5 bg-black/20 opacity-50'
                                     : 'border-white/10 hover:border-[#00F2FF]/50 hover:bg-[#00F2FF]/5'
                                     }`}>
                                     <input
+                                        id="voice-upload-input"
                                         type="file"
-                                        accept="audio/*"
+                                        accept="audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/webm,audio/ogg,.mp3,.wav,.m4a"
                                         className="hidden"
                                         onChange={handleVoiceDrop}
                                         disabled={!!selectedVoiceModelId}

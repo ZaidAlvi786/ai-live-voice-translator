@@ -18,6 +18,7 @@ interface NotificationStore {
     fetchNotifications: () => Promise<void>;
     markAsRead: (id: string) => Promise<void>;
     checkUnread: () => void;
+    subscribe: (userId: string) => () => void;
 }
 
 export const useNotificationStore = create<NotificationStore>((set, get) => ({
@@ -60,5 +61,33 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
     checkUnread: () => {
         const count = get().notifications.filter(n => !n.read).length;
         set({ unreadCount: count });
+    },
+
+    subscribe: (userId: string) => {
+        const { supabase } = require('@/lib/supabase'); // Lazy load or import at top
+        
+        const channel = supabase
+            .channel('public:notifications')
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'notifications',
+                    filter: `user_id=eq.${userId}`
+                },
+                (payload: any) => {
+                    const newNote = payload.new as Notification;
+                    set(state => ({
+                        notifications: [newNote, ...state.notifications],
+                        unreadCount: state.unreadCount + 1
+                    }));
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
     }
 }));

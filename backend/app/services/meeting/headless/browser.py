@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import os
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
 logger = logging.getLogger(__name__)
@@ -10,48 +11,63 @@ class HeadlessBrowserService:
     """
     def __init__(self):
         self.playwright = None
-        self.browser: Browser = None
+        self.browser_context = None # Changed from self.browser to self.browser_context for persistence
+        self.user_data_dir = os.path.join(os.getcwd(), "chrome_data") # Persistent Profile Directory
         self._lock = asyncio.Lock()
 
     async def launch(self):
+        """
+        Launches a PERSISTENT browser context. 
+        This saves cookies/login state to ./chrome_data, making the bot appear as a 'returning user'.
+        """
         async with self._lock:
-            if self.browser:
+            if self.browser_context:
                 return
 
-            logger.info("Launching Headless Browser...")
+            logger.info(f"Launching Persistent Browser (Profile: {self.user_data_dir})...")
             self.playwright = await async_playwright().start()
             
-            # Launch Args for WebRTC/Media fakery (crucial for Meet to accept us)
-            self.browser = await self.playwright.chromium.launch(
-                headless=True, # Set to False for debugging visually
+            # Launch Persistent Context (Mix of Browser + Context)
+            self.browser_context = await self.playwright.chromium.launch_persistent_context(
+                user_data_dir=self.user_data_dir,
+                headless=True, # Change to False if you need to see the login screen manually once
                 args=[
-                    "--use-fake-ui-for-media-stream", # Auto-accept mic/cam permission
-                    "--use-fake-device-for-media-stream", # Feeds fake audio/video
-                    "--disable-blink-features=AutomationControlled", # Anti-bot detection
+                    "--use-fake-ui-for-media-stream",
+                    "--use-fake-device-for-media-stream",
+                    "--disable-blink-features=AutomationControlled",
                     "--no-sandbox",
-                    "--disable-setuid-sandbox"
-                ]
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--disable-software-rasterizer",
+                    "--disable-extensions",
+                    "--exclude-switches=enable-automation", 
+                    "--disable-infobars",
+                    "--window-size=1280,720"
+                ],
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+                locale="en-US",
+                permissions=["microphone"],
+                viewport={"width": 1280, "height": 720},
+                timezone_id="America/New_York",
+                color_scheme="light"
             )
-            logger.info("Headless Browser Launched.")
+            logger.info("Persistent Browser Launched.")
 
     async def new_context(self) -> BrowserContext:
         """
-        Creates a new incognito context for a meeting session.
+        Returns the existing persistent context.
         """
-        if not self.browser:
+        if not self.browser_context:
             await self.launch()
-
-        context = await self.browser.new_context(
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            permissions=["microphone"], # Pre-grant mic permission
-            viewport={"width": 1280, "height": 720}
-        )
-        return context
+        
+        # specific page handling if needed, but for persistence we return the main context
+        return self.browser_context
 
     async def close(self):
-        if self.browser:
-            await self.browser.close()
-            self.browser = None
+        if self.browser_context:
+            await self.browser_context.close()
+            self.browser_context = None
         if self.playwright:
             await self.playwright.stop()
             self.playwright = None

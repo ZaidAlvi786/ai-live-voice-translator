@@ -41,7 +41,8 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         return {
             "id": user_response.user.id,
             "email": user_response.user.email,
-            "role": user_response.user.role
+            "role": user_response.user.role,
+            "token": token
         }
         
     except Exception as e:
