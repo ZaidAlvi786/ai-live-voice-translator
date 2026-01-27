@@ -15,7 +15,8 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str):
     
     try:
         # 1. Get Meeting
-        meeting_res = supabase.table("meetings").select("agent_id, mode").eq("id", meeting_id).single().execute()
+        # Use select("*") to avoid conflict with Postgres 'mode()' aggregate function
+        meeting_res = supabase.table("meetings").select("*").eq("id", meeting_id).single().execute()
         if not meeting_res.data:
             await websocket.close(code=4004, reason="Meeting not found")
             return
