@@ -138,9 +138,9 @@ async def create_meeting(meeting: MeetingCreate, background_tasks: BackgroundTas
             # Use the real Headless Bot
             from app.services.meeting.headless.google_meet import GoogleMeetAdapter
             
-            async def run_headless_bot(meeting_id, url, agent_name):
+            async def run_headless_bot(meeting_id, url, agent_name, agent_id):
                 try:
-                    adapter = GoogleMeetAdapter(meeting_id, url, agent_name)
+                    adapter = GoogleMeetAdapter(meeting_id, url, agent_name, agent_id)
                     await adapter.connect()
                     # Keep connection alive? Adapter connects and returns. 
                     # The WS bridge keeps the session active.
@@ -151,7 +151,8 @@ async def create_meeting(meeting: MeetingCreate, background_tasks: BackgroundTas
                 run_headless_bot, 
                 new_meeting["id"], 
                 new_meeting["external_url"],
-                agent_name
+                agent_name,
+                new_meeting["agent_id"]
             )
         # ---------------------------------------------
 
