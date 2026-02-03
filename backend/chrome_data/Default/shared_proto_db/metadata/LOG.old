@@ -1,0 +1,4 @@
+2026/01/28-04:17:24.496 29db51 Creating DB /Users/apple/Documents/Projects/Zaid/ai-live-voice-translator/backend/chrome_data/Default/shared_proto_db/metadata since it was missing.
+2026/01/28-04:17:24.550 29db51 Reusing MANIFEST /Users/apple/Documents/Projects/Zaid/ai-live-voice-translator/backend/chrome_data/Default/shared_proto_db/metadata/MANIFEST-000001
+2026/01/28-04:17:24.551 29db51 Recovering log #3
+2026/01/28-04:17:24.552 29db51 Reusing old log /Users/apple/Documents/Projects/Zaid/ai-live-voice-translator/backend/chrome_data/Default/shared_proto_db/metadata/000003.log 
