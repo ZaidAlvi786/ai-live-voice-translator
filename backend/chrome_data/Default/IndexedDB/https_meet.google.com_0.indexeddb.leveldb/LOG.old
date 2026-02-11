@@ -1,0 +1,4 @@
+2026/01/28-04:17:36.894 29db51 Creating DB /Users/apple/Documents/Projects/Zaid/ai-live-voice-translator/backend/chrome_data/Default/IndexedDB/https_meet.google.com_0.indexeddb.leveldb since it was missing.
+2026/01/28-04:17:36.968 29db51 Reusing MANIFEST /Users/apple/Documents/Projects/Zaid/ai-live-voice-translator/backend/chrome_data/Default/IndexedDB/https_meet.google.com_0.indexeddb.leveldb/MANIFEST-000001
+2026/01/28-04:17:36.969 29db51 Recovering log #3
+2026/01/28-04:17:36.974 29db51 Reusing old log /Users/apple/Documents/Projects/Zaid/ai-live-voice-translator/backend/chrome_data/Default/IndexedDB/https_meet.google.com_0.indexeddb.leveldb/000003.log 
