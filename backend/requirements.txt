@@ -10,3 +10,7 @@ passlib[bcrypt]
 websockets
 aiohttp>=3.9.0
 pypdf
+aiortc
+numpy
+av
+svix
