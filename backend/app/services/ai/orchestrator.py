@@ -46,11 +46,13 @@ class AIOrchestrator:
         supabase = get_supabase_client()
         
         # Fetch Agent Profile
-        agent_resp = supabase.table("agents").select("*").eq("id", self.agent_id).single().execute()
+        agent_resp = supabase.table("agents").select("*").eq("id", self.agent_id).execute()
         if not agent_resp.data:
+            print(f"ERROR: Agent {self.agent_id} not found in DB")
             raise ValueError(f"Agent {self.agent_id} not found")
         
-        agent_data = agent_resp.data
+        agent_data = agent_resp.data[0]
+        print(f"Orchestrator: Loaded Agent {agent_data.get('name')}")
         
         identity = AgentIdentity(
             name=agent_data.get("name"),
@@ -81,6 +83,7 @@ class AIOrchestrator:
         # Initial Probe & Audible Disclosure
         # "I am an AI Assistant joining this meeting."
         try:
+            print(f"Orchestrator: Sending Disclosure for {self.meeting_id}")
             # 1. DB Log
             get_supabase_client().table('meeting_transcripts').insert({
                 "meeting_id": self.meeting_id,
@@ -91,25 +94,36 @@ class AIOrchestrator:
             
             # 2. Audible Announcement (Compliance)
             disclosure_text = f"Hello. I am {self.runtime.identity.name}, an AI assistant. I am recording this session for {self.runtime.mode} purposes."
-            
-            get_supabase_client().table('meeting_transcripts').insert({
-                "meeting_id": self.meeting_id,
-                "speaker": "agent",
-                "content": disclosure_text,
-                "confidence": 1.0
-            }).execute()
+            print(f"Orchestrator Disclosure Text: {disclosure_text}")
 
+            try:
+                get_supabase_client().table('meeting_transcripts').insert({
+                    "meeting_id": self.meeting_id,
+                    "speaker": "agent",
+                    "content": disclosure_text,
+                    "confidence": 1.0
+                }).execute()
+            except Exception as e:
+                print(f"WARNING: Failed to save disclosure transcript: {e}")
+                # Don't fail the whole pipeline just because of a log error
+            
             self.is_speaking = True
             async def announcement_yielder():
                 yield disclosure_text
             
+            print(f"Orchestrator: Streaming Disclosure TTS...")
             tts_stream = self.tts.speak_stream(announcement_yielder(), self.voice_id)
+            chunks_generated = 0
             async for audio_chunk in tts_stream:
                  await self.audio_output_queue.put(audio_chunk)
+                 chunks_generated += 1
+            print(f"Orchestrator: Disclosure TTS Complete. Generated {chunks_generated} chunks.")
             self.is_speaking = False
             
         except Exception as e: 
-            print(f"Initialization/Disclosure failed: {e}")
+            print(f"ERROR: Initialization/Disclosure failed: {e}")
+            import traceback
+            traceback.print_exc()
             pass
         
         # Start STT Stream
