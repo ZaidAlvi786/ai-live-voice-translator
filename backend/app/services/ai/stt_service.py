@@ -5,6 +5,8 @@ from typing import AsyncGenerator
 from .base import STTService
 # In production, use deepgram-sdk. For scaffold, using raw websockets to demonstrate logic.
 import websockets
+import ssl
+import certifi
 
 class DeepgramSTTService(STTService):
     def __init__(self):
@@ -30,10 +32,14 @@ class DeepgramSTTService(STTService):
         self.base_url = "wss://api.deepgram.com/v1/listen?smart_format=true&interim_results=true&model=nova-2"
 
         try:
+            ssl_context = ssl.create_default_context(cafile=certifi.where())
+            
             async with websockets.connect(
                 self.base_url, 
-                extra_headers={"Authorization": f"Token {self.api_key}"}
+                additional_headers={"Authorization": f"Token {self.api_key}"},
+                ssl=ssl_context
             ) as ws:
+                print("STT: Deepgram Connection Opened Successfully")
                 
                 async def sender():
                     try:

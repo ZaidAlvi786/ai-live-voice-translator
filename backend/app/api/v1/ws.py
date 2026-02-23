@@ -7,7 +7,9 @@ router = APIRouter()
 
 @router.websocket("/ws/{meeting_id}")
 async def websocket_endpoint(websocket: WebSocket, meeting_id: str):
+    print(f"WS Connecting: {meeting_id}")
     await manager.connect(websocket, meeting_id)
+    print(f"WS Connected: {meeting_id}")
     
     # Fetch Meeting & Agent Details
     from app.db.supabase import get_supabase_client
@@ -53,27 +55,44 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str):
                  voice_id = agent_res.data[0].get("voice_model_id") or voice_id
                  
             orchestrator = AIOrchestrator(meeting_id, agent_id, voice_id, mode=mode)
+            print(f"WS Orchestrator Created for {meeting_id}")
         except Exception as e:
             print(f"WS Init Error: {e}")
+            import traceback
+            traceback.print_exc()
             error_msg = str(e)
             if "PGRST116" in error_msg or "0 rows" in error_msg:
                 reason = "Meeting record missing from database."
             else:
-                reason = "Internal Database Error"
+                reason = f"Internal Database Error: {error_msg}"
             await websocket.close(code=1011, reason=reason)
             return
     
+    # Wrapper to catch orchestrator errors
+    async def run_orchestrator():
+        try:
+            print(f"WS starting orchestrator task for {meeting_id}")
+            await orchestrator.run_pipeline()
+        except Exception as e:
+            print(f"WS Orchestrator Task Error: {e}")
+            import traceback
+            traceback.print_exc()
+
     # Start Orchestrator Loop Task
-    orchestrator_task = asyncio.create_task(orchestrator.run_pipeline())
+    orchestrator_task = asyncio.create_task(run_orchestrator())
     
     # Start Audio Sender Task
     async def sender_task():
         try:
+            print(f"WS starting sender task for {meeting_id}")
             while True:
                 chunk = await orchestrator.audio_output_queue.get()
+                # print(f"WS sending {len(chunk)} bytes to client")
                 await websocket.send_bytes(chunk)
         except Exception as e:
-            print(f"Sender task error: {e}")
+            print(f"WS Sender Task Error: {e}")
+            import traceback
+            traceback.print_exc()
 
     send_task = asyncio.create_task(sender_task())
 
@@ -82,9 +101,16 @@ async def websocket_endpoint(websocket: WebSocket, meeting_id: str):
             # We expect bytes (Audio) or Text (Control)
             # For this demo, let's assume we receive bytes mostly
             data = await websocket.receive_bytes()
+            # print(f"WS received {len(data)} bytes from client")
             await orchestrator.ingest_audio(data)
             
     except WebSocketDisconnect:
+        print(f"WS Client Disconnected: {meeting_id}")
+        orchestrator_task.cancel()
+        send_task.cancel()
+        manager.disconnect(websocket, meeting_id)
+    except Exception as e:
+        print(f"WS Main Loop Error: {e}")
         orchestrator_task.cancel()
         send_task.cancel()
         manager.disconnect(websocket, meeting_id)
