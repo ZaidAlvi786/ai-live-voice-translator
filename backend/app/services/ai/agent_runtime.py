@@ -3,7 +3,7 @@ import asyncio
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from app.services.ai.base import AIService
-from app.services.ai.llm_service import LLMService
+from app.services.ai.llm_service import OpenAILLMService
 from app.services.ai.rag_service import RAGService
 from app.services.ai.question_boundary_detector import QuestionBoundaryDetector
 import logging
@@ -80,7 +80,7 @@ class AgentRuntime(AIService):
         self.agent_id = agent_id
         self.identity = identity
         self.mode = mode  # 'interview' | 'standup'
-        self.llm = LLMService()
+        self.llm = OpenAILLMService()
         self.rag = RAGService()
         
         # Runtime State
