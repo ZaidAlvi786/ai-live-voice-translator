@@ -13,46 +13,35 @@ class ElevenLabsTTSService(TTSService):
         self.api_key = os.getenv("ELEVENLABS_API_KEY")
         self.base_url = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream"
 
-    async def speak_stream(self, text_stream: AsyncGenerator[str, None], voice_id: str) -> AsyncGenerator[bytes, None]:
+    async def speak_stream(self, text_stream: AsyncGenerator[str, None], voice_id: str, output_format: str = "mp3_44100_128") -> AsyncGenerator[bytes, None]:
         if not self.api_key:
             print("ElevenLabs API Key Missing")
             return
             
-        # Optimization: ElevenLabs Websocket is faster, but using HTTP chunking for simplicity in scaffold
         headers = {
             "xi-api-key": self.api_key,
             "Content-Type": "application/json"
         }
         
-        # In a real streaming implementation, we would buffer text tokens into minimal sentences 
-        # before sending to API to optimize latency/cost. 
-        # Here we simulate accumulation.
-        
-        url = self.base_url.format(voice_id=voice_id)
+        # ElevenLabs supports pcm_44100, pcm_24000, pcm_16000, etc.
+        url = self.base_url.format(voice_id=voice_id) + f"?output_format={output_format}"
         
         # Create SSL context for macOS/certify reliability
         ssl_context = ssl.create_default_context(cafile=certifi.where())
         
         async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_context)) as session:
-            # We need to send text chunks. 
-            # Note: HTTP Streaming doesn't allow streaming *input* easily in standard REST.
-            # Production approach: Use ElevenLabs Websockets.
-            # For this scaffold, we'll accumulate a small buffer and send.
-            
             current_sentence = ""
             async for token in text_stream:
                 if not token:
                     continue
                 current_sentence += token
-                # Check if the token contains any punctuation or ends with one
                 if any(p in token for p in [".", "!", "?", "\n"]):
-                    # Send chunk
                     payload = {
                         "text": current_sentence,
                         "model_id": "eleven_turbo_v2",
                         "voice_settings": {"stability": 0.5, "similarity_boost": 0.5}
                     }
-                    print(f"TTS: Requesting speech for: {current_sentence[:50]}...")
+                    print(f"TTS: Requesting speech ({output_format}) for: {current_sentence[:50]}...")
                     async with session.post(url, json=payload, headers=headers) as resp:
                         if resp.status != 200:
                             print(f"TTS ERROR: ElevenLabs returned {resp.status}: {await resp.text()}")

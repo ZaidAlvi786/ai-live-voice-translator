@@ -5,6 +5,8 @@ import os
 import logging
 from svix.webhooks import Webhook, WebhookVerificationError
 from app.services.recall.webrtc_handler import create_webrtc_answer
+from app.services.ai.orchestrator import AIOrchestrator
+import asyncio
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -22,12 +24,15 @@ else:
 
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://your-domain.com")
 
-# Global store for active peer connections to prevent garbage collection
+# Global store for active peer connections and bot metadata
 active_connections = {}
+bot_state = {} # bot_id -> {meeting_id, agent_id, orchestrator}
 
 class JoinRequest(BaseModel):
     meeting_url: str
     bot_name: str = "Neuralis AI"
+    meeting_id: str
+    agent_id: str
 
 @router.post("/join")
 async def join_meeting(req: JoinRequest):
@@ -57,7 +62,15 @@ async def join_meeting(req: JoinRequest):
                 logger.error(f"Recall.ai API error: {response.text}")
                 raise HTTPException(status_code=response.status_code, detail=response.json())
             
-            return response.json()
+            data = response.json()
+            bot_id = data.get("id")
+            if bot_id:
+                bot_state[bot_id] = {
+                    "meeting_id": req.meeting_id,
+                    "agent_id": req.agent_id
+                }
+            
+            return data
         except Exception as e:
             logger.exception("Failed to connect to Recall.ai")
             raise HTTPException(status_code=500, detail=str(e))
@@ -97,8 +110,26 @@ async def webrtc_callback(request: Request):
         logger.info(f"Received WebRTC offer for bot {bot_id}")
         
         try:
-            # Create the answer and establish the connection
-            sdp_answer, pc = await create_webrtc_answer(sdp_offer)
+            # 1. Fetch metadata for this bot
+            state = bot_state.get(bot_id)
+            if not state:
+                logger.warning(f"No state found for bot {bot_id}. Using defaults.")
+                state = {"meeting_id": "recall-bot", "agent_id": "default"}
+            
+            # 2. Initialize AI Orchestrator
+            orchestrator = AIOrchestrator(
+                meeting_id=state["meeting_id"],
+                agent_id=state["agent_id"],
+                voice_id=None 
+            )
+            state["orchestrator"] = orchestrator
+            
+            # 3. Start Orchestrator Pipeline
+            asyncio.create_task(orchestrator.run_pipeline(tts_output_format="pcm_44100"))
+            logger.info(f"AI Orchestrator started for bot {bot_id}")
+
+            # 4. Create the answer and establish the connection
+            sdp_answer, pc = await create_webrtc_answer(sdp_offer, orchestrator)
             
             # Store connection to keep it alive
             active_connections[bot_id] = pc
@@ -109,6 +140,7 @@ async def webrtc_callback(request: Request):
                 if pc.connectionState in ["closed", "failed", "disconnected"]:
                     logger.info(f"Connection for bot {bot_id} {pc.connectionState}")
                     active_connections.pop(bot_id, None)
+                    bot_state.pop(bot_id, None)
 
             # Recall.ai expects the SDP answer in a JSON response
             return {"sdp": sdp_answer}
