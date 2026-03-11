@@ -149,7 +149,12 @@ class GoogleMeetAdapter:
            try:
                 content = await self.page.content()
                 if "You can't join this video call" in content or "Return to home screen" in content:
-                    logger.error("CRITICAL: Google Meet blocked this session. Capturing screenshot...")
+                    title = await self.page.title()
+                    url = self.page.url
+                    logger.error(f"CRITICAL: Google Meet blocked this session.")
+                    logger.error(f"Block URL: {url}")
+                    logger.error(f"Block Title: {title}")
+                    logger.error("Capturing screenshot to debug_block_critical.png")
                     await self.page.screenshot(path="debug_block_critical.png")
                     return # Stop here
            except: pass
