@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from typing import List, Optional
+from typing import List, Optional, Dict
 from pydantic import BaseModel
 from app.core.security import get_current_user
 from app.db.supabase import get_supabase_client
@@ -8,15 +8,19 @@ router = APIRouter()
 
 # --- Models ---
 class AgentPersonality(BaseModel):
-    confidence: float
-    empathy: float
-    technical: float
+    confidence: float = 0.5
+    empathy: float = 0.5
+    technical: float = 0.5
     speed: float = 1.0
 
 class AgentCreate(BaseModel):
     name: str # The user can name their agent
     personality_config: AgentPersonality
     voice_model_id: Optional[str] = None
+    role: Optional[str] = "Assistant"
+    years_experience: Optional[int] = 0
+    communication_style: Optional[str] = "formal"
+    guardrails: Optional[Dict] = {}
 
 class AgentResponse(BaseModel):
     id: str
@@ -24,6 +28,10 @@ class AgentResponse(BaseModel):
     name: str
     personality_config: AgentPersonality
     voice_model_id: Optional[str] = None
+    role: Optional[str] = "Assistant"
+    years_experience: Optional[int] = 0
+    communication_style: Optional[str] = "formal"
+    guardrails: Optional[Dict] = {}
     status: str
     created_at: str
 
@@ -82,9 +90,13 @@ async def create_agent(agent: AgentCreate, user: dict = Depends(get_current_user
     agent_data = {
         "user_id": user["id"],
         "name": agent.name,
-        "personality_config": agent.personality_config.model_dump(), # Store as JSON
+        "personality_config": agent.personality_config.model_dump(),
         "voice_model_id": agent.voice_model_id,
-        "status": "creating" # Initial status
+        "role": agent.role,
+        "years_experience": agent.years_experience,
+        "communication_style": agent.communication_style,
+        "guardrails": agent.guardrails,
+        "status": "creating"
     }
 
     try:
@@ -146,6 +158,10 @@ class AgentUpdate(BaseModel):
     name: Optional[str] = None
     personality_config: Optional[AgentPersonality] = None
     voice_model_id: Optional[str] = None
+    role: Optional[str] = None
+    years_experience: Optional[int] = None
+    communication_style: Optional[str] = None
+    guardrails: Optional[Dict] = None
     status: Optional[str] = None
 
 @router.patch("/{agent_id}", response_model=AgentResponse)
@@ -163,6 +179,14 @@ async def update_agent(agent_id: str, update: AgentUpdate, user: dict = Depends(
         update_data["personality_config"] = update.personality_config.model_dump()
     if update.voice_model_id is not None:
         update_data["voice_model_id"] = update.voice_model_id
+    if update.role is not None:
+        update_data["role"] = update.role
+    if update.years_experience is not None:
+        update_data["years_experience"] = update.years_experience
+    if update.communication_style is not None:
+        update_data["communication_style"] = update.communication_style
+    if update.guardrails is not None:
+        update_data["guardrails"] = update.guardrails
     if update.status is not None:
         update_data["status"] = update.status
 
