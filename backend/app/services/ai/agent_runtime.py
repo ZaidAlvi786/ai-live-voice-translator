@@ -12,10 +12,10 @@ logger = logging.getLogger(__name__)
 
 class AgentIdentity(BaseModel):
     name: str
-    role: str
-    years_experience: int
-    communication_style: str  # 'confident', 'concise', 'casual', 'formal'
-    guardrails: Dict
+    role: str = "Assistant"
+    years_experience: int = 0
+    communication_style: str = "formal"  # 'confident', 'concise', 'casual', 'formal'
+    guardrails: Dict = {}
 
 class CognitiveCache:
     """
