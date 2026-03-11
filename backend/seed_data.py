@@ -11,9 +11,22 @@ async def seed_database():
     
     print("--- NEURALIS SEED SCRIPT ---")
     
-    # 1. Create a Test User (or use existing if any)
-    # Note: We use a random UUID for user_id to bypass auth dependency in local tests
-    user_id = "00000000-0000-0000-0000-000000000000"
+    # 1. Fetch a valid User ID
+    print("Fetching valid user from Supabase...")
+    try:
+        # We use the admin API to list users and pick the first one
+        users_res = supabase.auth.admin.list_users()
+        if not users_res:
+            raise Exception("No users found in Supabase. Please create a user first.")
+        
+        user_id = users_res[0].id
+        user_email = users_res[0].email
+        print(f"Using User: {user_email} ({user_id})")
+    except Exception as e:
+        print(f"failed to fetch users via admin API: {e}")
+        # Fallback to a common dummy or prompt the user if needed
+        # But based on our check, we know a user exists.
+        raise e
     
     try:
         # 2. Create a Test Agent
@@ -23,7 +36,8 @@ async def seed_database():
             "name": "Neuralis Test Agent",
             "role": "Meeting Assistant",
             "voice_model_id": "21m00Tcm4TlvDq8ikWAM", # ElevenLabs default
-            "communication_style": "helpful"
+            "communication_style": "helpful",
+            "personality_config": {"confidence": 0.8, "empathy": 0.7, "technical": 0.6}
         }
         agent_res = supabase.table("agents").insert(agent_data).execute()
         agent = agent_res.data[0]
